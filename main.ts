@@ -1,5 +1,5 @@
 import { App, Editor, MarkdownView, Modal, Notice, Plugin, PluginSettingTab, Setting } from 'obsidian';
-
+const Obsidian = require('obsidian');
 // Remember to rename these classes and interfaces!
 
 interface MyPluginSettings {
@@ -12,10 +12,11 @@ interface MyPluginSettings {
 const DEFAULT_SETTINGS: MyPluginSettings = {
 	my_setting: 'default',
 	open_api_key: '',
-	zettelcasting_api_key: '',
+	zettelcasting_api_key: '1234567891011',
 	open_ai_model: 'gpt-3.5-turbo-16k'
 	
 }
+
 
 export default class ZettelCastingPlugin extends Plugin {
 	settings: MyPluginSettings;
@@ -44,13 +45,24 @@ export default class ZettelCastingPlugin extends Plugin {
 				new SampleModal(this.app).open();
 			}
 		});
+
+
 		// This adds an editor command that can perform some operation on the current editor instance
 		this.addCommand({
 			id: 'sample-editor-command',
 			name: 'Sample editor command',
-			editorCallback: (editor: Editor, view: MarkdownView) => {
-				console.log(editor.getSelection());
-				editor.replaceSelection('Sample Editor Command');
+			editorCallback: async (editor: { somethingSelected: () => any; getSelection: () => any; }) => {
+					const activeFile = this.app.workspace.getActiveFile();
+	
+// Read the currently open note file. We are reading it off the HDD - we are NOT accessing the editor to do this.
+						let text = await this.app.vault.read
+						if(activeFile) {
+						let file_content = await this.app.vault.cachedRead(activeFile);
+						let selected_text = file_content;
+						console.log('this is the selected text', selected_text);
+						 this.send_note(selected_text, this.settings.open_api_key, this.settings.zettelcasting_api_key, this.settings.open_ai_model);
+						}
+						
 			}
 		});
 		// This adds a complex command that can check whether the current state of the app allows execution of the command
@@ -63,10 +75,6 @@ export default class ZettelCastingPlugin extends Plugin {
 				if (markdownView) {
 					// If checking is true, we're simply "checking" if the command can be run.
 					// If checking is false, then we want to actually perform the operation.
-					if (!checking) {
-						new SampleModal(this.app).open();
-					}
-
 					// This command will only show up in Command Palette when the check function returns true
 					return true;
 				}
@@ -95,15 +103,44 @@ export default class ZettelCastingPlugin extends Plugin {
 	}	
 
 	async loadSettings() {
-		this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+		this.settings = Object.assign({}, DEFAULT_SETTINGS);
+		this.addCommand({
+		id: 'zc-send-note',
+		name: "Find: ZettelCasting - Send Note",
+		icon: "pencil_icon",
+		editorCallback: async(editor: { somethingSelected: () => any; getSelection: () => any; }) => {
+			if(editor.somethingSelected()) {
+				let selected_text = editor.getSelection();
+				let note_link = await this.send_note(selected_text, this.settings.open_api_key, this.settings.zettelcasting_api_key, this.settings.open_ai_model);
+			}
+		}	
+		})
 	}
 
-	async saveSettings() {
+async send_note(text: string, open_api_key: string, zettelcasting_api_key: string, open_ai_model: string) {
+		const response =  await fetch("http://localhost:3000/api/v1/processnotes", {
+			method: "POST",
+			mode: "cors",
+			headers: {
+				"Content-Type": "application/json",
+				"Authorization": `Bearer ${zettelcasting_api_key}`
+			},
+			body: JSON.stringify({
+				text: text,
+				open_api_key: open_api_key,
+				open_ai_model: open_ai_model
+			})
+		});
+		console.log('here is the response', response);
+	}
+
+		async saveSettings() {
 		await this.saveData(this.settings);
 	}
-}
 
-class SampleModal extends Modal {
+	}
+
+	class SampleModal extends Modal {
 	constructor(app: App) {
 		super(app);
 	}
