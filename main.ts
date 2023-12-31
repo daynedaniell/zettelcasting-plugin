@@ -4,16 +4,13 @@ const Obsidian = require('obsidian');
 
 interface MyPluginSettings {
 	my_setting: string;
-	open_api_key: string;
 	zettelcasting_api_key: string;
-	open_ai_model: string;
 }
 
 const DEFAULT_SETTINGS: MyPluginSettings = {
 	my_setting: 'default',
-	open_api_key: '',
 	zettelcasting_api_key: '1234567891011',
-	open_ai_model: 'gpt-3.5-turbo-16k'
+	
 	
 }
 
@@ -60,7 +57,7 @@ export default class ZettelCastingPlugin extends Plugin {
 						let file_content = await this.app.vault.cachedRead(activeFile);
 						let selected_text = file_content;
 						console.log('this is the selected text', selected_text);
-						 this.send_note(selected_text, this.settings.open_api_key, this.settings.zettelcasting_api_key, this.settings.open_ai_model);
+						 this.send_note(selected_text,  this.settings.zettelcasting_api_key);
 						}
 						
 			}
@@ -111,13 +108,13 @@ export default class ZettelCastingPlugin extends Plugin {
 		editorCallback: async(editor: { somethingSelected: () => any; getSelection: () => any; }) => {
 			if(editor.somethingSelected()) {
 				let selected_text = editor.getSelection();
-				let note_link = await this.send_note(selected_text, this.settings.open_api_key, this.settings.zettelcasting_api_key, this.settings.open_ai_model);
+				let note_link = await this.send_note(selected_text, this.settings.zettelcasting_api_key);
 			}
 		}	
 		})
 	}
 
-async send_note(text: string, open_api_key: string, zettelcasting_api_key: string, open_ai_model: string) {
+async send_note(text: string, zettelcasting_api_key: string) {
 		const response =  await fetch("http://localhost:3000/api/v1/processnotes", {
 			method: "POST",
 			mode: "cors",
@@ -127,8 +124,8 @@ async send_note(text: string, open_api_key: string, zettelcasting_api_key: strin
 			},
 			body: JSON.stringify({
 				text: text,
-				open_api_key: open_api_key,
-				open_ai_model: open_ai_model
+				"zettelcasting_api_key": zettelcasting_api_key
+				
 			})
 		});
 		console.log('here is the response', response);
@@ -168,17 +165,6 @@ class SampleSettingTab extends PluginSettingTab {
 		const {containerEl} = this;
 
 		containerEl.empty();
-
-		new Setting(containerEl)
-			.setName('OpenAPI Key')
-			.setDesc('It\'s a secret')
-			.addText(text => text
-				.setPlaceholder('Enter your secret')
-				.setValue(this.plugin.settings.open_api_key)
-				.onChange(async (value) => {
-					this.plugin.settings.open_api_key = value;
-					await this.plugin.saveSettings();
-				}));
 
 		new Setting(containerEl)
 			.setName('ZettelCasting API Key')
