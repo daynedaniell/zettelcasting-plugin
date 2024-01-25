@@ -15,7 +15,7 @@ const DEFAULT_SETTINGS: BakeSettings = {
   bakeEmbeds: true,
   bakeInList: true,
   convertFileLinks: true,
-  zettelcasting_api_key: '1234567891011',
+  zettelcasting_api_key: ''
 };
 
 export default class EasyBake extends Plugin {

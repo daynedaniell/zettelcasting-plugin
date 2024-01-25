@@ -9,7 +9,7 @@ interface MyPluginSettings {
 
 const DEFAULT_SETTINGS: MyPluginSettings = {
 	my_setting: 'default',
-	zettelcasting_api_key: '1234567891011',
+	zettelcasting_api_key: '7f731752-00c3-4b77-92ae-a0c2bb0cc1c2',
 	
 	
 }

@@ -118,18 +118,17 @@ async function bake(
   return text;
 }
 
-function send_note(text: string, zettelcasting_api_key: string) {
-    const response =  fetch("http://localhost:3000/api/v1/processnotes", {
+async function send_note(text: string, zettelcasting_api_key: string) {
+    const response =  await fetch("http://localhost:3000/api/schedule/create", {
       method: "POST",
       mode: "cors",
       headers: {
+		"Access-Control-Allow-Origin": "http://localhost:3000/api/schedule",
+		"Access-Control-Allow-Headers": "Access-Control-Allow-Origin",
         "Content-Type": "application/json",
         "Authorization": `Bearer ${zettelcasting_api_key}`
       },
-      body: JSON.stringify({
-        text,
-        "zettelcasting_api_key": zettelcasting_api_key
-      })
+      body: JSON.stringify(text)
     });
     console.log("here is the response", response);
   }
@@ -223,6 +222,16 @@ export class BakeModal extends Modal {
           })
         );
       });
+
+      new Setting(contentEl)
+			.setName('Zettelcasting API Key')
+			.addText(text => text
+				.setPlaceholder('Enter your zettelcasting api key')
+		.setValue(settings.zettelcasting_api_key)
+				.onChange(async (value) => {
+					settings.zettelcasting_api_key = value;
+					await plugin.saveSettings();
+				}));
 
       this.modalEl.createDiv('modal-button-container', (el) => {
         let outputName = file.basename + '.baked';
