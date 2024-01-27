@@ -1,8 +1,15 @@
 <script lang="ts">
 	import Flatpickr from "./Flatpickr.svelte";
+	import { createEventDispatcher } from "svelte";
 
-	let value = undefined,
-		formattedValue,
+	import type EasyBake from "./main";
+
+	let plugin: EasyBake;
+
+	const dispatch = createEventDispatcher();
+
+	export let value: undefined = undefined,
+		formattedValue: any,
 		flatpickr;
 
 	let mode = "single";
@@ -21,8 +28,6 @@
 		},
 	};
 
-	$: console.log({ value });
-
 	function handleOpen(event) {
 		event.preventDefault();
 
@@ -35,6 +40,7 @@
 	function handleChange(event: any) {
 		const [selectedDates, dateStr] = event.detail;
 		console.log({ selectedDates, dateStr });
+		dispatch("dateChange", { selectedDates, dateStr });
 	}
 
 	function handleClear() {
@@ -46,7 +52,10 @@
 	function handleSubmit(event) {
 		event.preventDefault();
 
-		console.log(event.target.elements["date"].value);
+		console.log(
+			"coming from the component itself on handleSubmit",
+			event.target.elements["date"].value,
+		);
 	}
 
 	export let variable: number;

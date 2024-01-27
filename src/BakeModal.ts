@@ -120,7 +120,7 @@ async function bake(
   return text;
 }
 
-async function send_note(text: string, zettelcasting_api_key: string) {
+async function send_note( text: string, zettelcasting_api_key: string) {
     const response =  await fetch("http://localhost:3000/api/schedule/create", {
       method: "POST",
       mode: "cors",
@@ -237,14 +237,14 @@ export class BakeModal extends Modal {
 				}));
 
       this.modalEl.createDiv('modal-button-container', (el) => {
-        let outputName = file.basename + '.baked';
+        let outputName = file.basename + '.zcast.md';
         let outputFolder = file.parent?.path || '';
 
         if (outputFolder) outputFolder += '/';
 
         const btn = el.createEl('button', {
           cls: 'mod-cta',
-          text: 'Send',
+          text: 'Schedule Post',
         });
 
         activeWindow.setTimeout(() => {
@@ -288,6 +288,7 @@ export class BakeModal extends Modal {
     });
   }
 
+
 onOpen() {
 	this.component = new Component({
 		target: this.contentEl,
@@ -295,5 +296,17 @@ onOpen() {
 			variable: 1
 		}
 	})
+
+	this.component.$on('dateChange', (date: any) => {
+		console.log('this is it', date.detail.selectedDates)
+	})
 }
+
+onClose() {
+	this.component.$destroy();
+	const {contentEl} = this;
+	contentEl.empty();
+}
+
+
 }
