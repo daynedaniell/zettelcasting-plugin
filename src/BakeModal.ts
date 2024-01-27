@@ -18,6 +18,8 @@ import {
   stripFirstBullet,
 } from './util';
 
+import  Component  from './Component.svelte'
+
 const lineStartRE = /(?:^|\n) *$/;
 const listLineStartRE = /(?:^|\n)([ \t]*)(?:[-*+]|[0-9]+[.)]) +$/;
 const lineEndRE = /^ *(?:\r?\n|$)/;
@@ -152,13 +154,14 @@ function enableBtn(btn: HTMLButtonElement) {
 }
 
 export class BakeModal extends Modal {
+	component: Component;
   constructor(plugin: EasyBake, file: TFile) {
     super(plugin.app);
 
     const { contentEl } = this;
     const { settings } = plugin;
 
-    this.titleEl.setText('Convert file');
+    this.titleEl.setText('Schedule post with ZettelCasting');
     this.modalEl.addClass('mod-narrow', 'easy-bake-modal');
     this.contentEl
       .createEl('p', { text: 'Input file: ' })
@@ -241,7 +244,7 @@ export class BakeModal extends Modal {
 
         const btn = el.createEl('button', {
           cls: 'mod-cta',
-          text: 'Bake',
+          text: 'Send',
         });
 
         activeWindow.setTimeout(() => {
@@ -284,4 +287,13 @@ export class BakeModal extends Modal {
       });
     });
   }
+
+onOpen() {
+	this.component = new Component({
+		target: this.contentEl,
+		props: {
+			variable: 1
+		}
+	})
+}
 }
