@@ -19,6 +19,7 @@ import {
 } from './util';
 
 import  Component  from './Component.svelte'
+import { picked_date } from './date.store';
 
 const lineStartRE = /(?:^|\n) *$/;
 const listLineStartRE = /(?:^|\n)([ \t]*)(?:[-*+]|[0-9]+[.)]) +$/;
@@ -115,23 +116,36 @@ async function bake(
     );
   }
 
-  send_note(text, settings.zettelcasting_api_key);
+let publishDate: Date = new Date();
+picked_date.subscribe((prev_val) => {
+	if (prev_val !== null) {
+		publishDate = prev_val;
+	}
+});
+
+send_note(text, publishDate, settings.zettelcasting_api_key);
 
   return text;
 }
 
-async function send_note( text: string, zettelcasting_api_key: string) {
-    const response =  await fetch("http://localhost:3000/api/schedule/create", {
-      method: "POST",
-      mode: "cors",
-      headers: {
+async function send_note( text: string, publishDate: Date, zettelcasting_api_key: string) {
+const response =  await fetch("http://localhost:3000/api/schedule/create", {
+	method: "POST",
+	mode: "cors",
+	headers: {
 		"Access-Control-Allow-Origin": "http://localhost:3000/api/schedule",
 		"Access-Control-Allow-Headers": "Access-Control-Allow-Origin",
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${zettelcasting_api_key}`
-      },
-      body: JSON.stringify(text)
-    });
+		"Content-Type": "application/json",
+		"Authorization": `Bearer ${zettelcasting_api_key}`
+	},
+	body: JSON.stringify({
+		body: {
+			text: text,
+			publishDate: publishDate,
+			zettelcasting_api_key: zettelcasting_api_key
+		}
+	})
+});
     console.log("here is the response", response);
   }
 
@@ -295,10 +309,6 @@ onOpen() {
 		props: {
 			variable: 1
 		}
-	})
-
-	this.component.$on('dateChange', (date: any) => {
-		console.log('this is it', date.detail.selectedDates)
 	})
 }
 
