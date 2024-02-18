@@ -18,7 +18,7 @@ import {
   stripFirstBullet,
 } from './util';
 
-import  Component  from './Component.svelte'
+import  Component  from './Component.svelte';
 import { picked_date } from './date.store';
 
 const lineStartRE = /(?:^|\n) *$/;
@@ -36,6 +36,7 @@ async function bake(
 
   let text = await vault.cachedRead(file);
   const cache = metadataCache.getFileCache(file);
+
 
   // No cache? Return the file as is...
   if (!cache) return text;
@@ -123,17 +124,17 @@ picked_date.subscribe((prev_val) => {
 	}
 });
 
-send_note(text, publishDate, settings.zettelcasting_api_key);
+send_note(text, publishDate, settings.platform, settings.zettelcasting_api_key);
 
   return text;
 }
 
-async function send_note( text: string, publishDate: Date, zettelcasting_api_key: string) {
-const response =  await fetch("http://localhost:3000/api/schedule/create", {
+async function send_note( text: string, publishDate: Date, platform: string, zettelcasting_api_key: string) {
+const response =  await fetch("http://localhost:4000/api/post/schedule", {
 	method: "POST",
 	mode: "cors",
 	headers: {
-		"Access-Control-Allow-Origin": "http://localhost:3000/api/schedule",
+		"Access-Control-Allow-Origin": "http://localhost:4000/api/post/schedule",
 		"Access-Control-Allow-Headers": "Access-Control-Allow-Origin",
 		"Content-Type": "application/json",
 		"Authorization": `Bearer ${zettelcasting_api_key}`
@@ -142,6 +143,7 @@ const response =  await fetch("http://localhost:3000/api/schedule/create", {
 		body: {
 			text: text,
 			publishDate: publishDate,
+			platform: platform,
 			zettelcasting_api_key: zettelcasting_api_key
 		}
 	})
@@ -250,6 +252,23 @@ export class BakeModal extends Modal {
 					await plugin.saveSettings();
 				}));
 
+
+    new Setting(contentEl)
+			.setName('Publish to Platform')
+			.addDropdown(dropdown => {
+				dropdown
+					.addOption('facebook', 'Facebook')
+					.addOption('twitter', 'X (Twitter)')
+					.setValue(settings.platform)
+					.onChange(async (value) => {
+						settings.platform = value;
+						await plugin.saveSettings();
+					});
+			})
+
+
+
+
       this.modalEl.createDiv('modal-button-container', (el) => {
         let outputName = file.basename + '.zcast.md';
         let outputFolder = file.parent?.path || '';
@@ -306,9 +325,6 @@ export class BakeModal extends Modal {
 onOpen() {
 	this.component = new Component({
 		target: this.contentEl,
-		props: {
-			variable: 1
-		}
 	})
 }
 

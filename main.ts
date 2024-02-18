@@ -115,7 +115,7 @@ export default class ZettelCastingPlugin extends Plugin {
 	}
 
 async send_note(text: string, zettelcasting_api_key: string) {
-		const response =  await fetch("http://localhost:3000/api/v1/processnotes", {
+		const response =  await fetch("http://localhost:4000/api/v1/processnotes", {
 			method: "POST",
 			mode: "cors",
 			headers: {

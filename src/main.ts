@@ -7,6 +7,7 @@ export interface BakeSettings {
   bakeEmbeds: boolean;
   bakeInList: boolean;
   convertFileLinks: boolean;
+  platform: string;
   zettelcasting_api_key: string;
 }
 
@@ -15,6 +16,7 @@ const DEFAULT_SETTINGS: BakeSettings = {
   bakeEmbeds: true,
   bakeInList: true,
   convertFileLinks: true,
+  platform: '',
   zettelcasting_api_key: ''
 };
 
