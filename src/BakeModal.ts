@@ -141,8 +141,8 @@ const response =  await fetch("http://localhost:4000/api/post/schedule", {
 	},
 	body: JSON.stringify({
 		body: {
-			text: text,
-			publishDate: publishDate,
+			body: text,
+			eventDate: publishDate,
 			platform: platform,
 			zettelcasting_api_key: zettelcasting_api_key
 		}
