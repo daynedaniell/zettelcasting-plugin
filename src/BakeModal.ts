@@ -130,11 +130,11 @@ send_note(text, publishDate, settings.platform, settings.zettelcasting_api_key);
 }
 
 async function send_note( text: string, publishDate: Date, platform: string, zettelcasting_api_key: string) {
-const response =  await fetch("http://localhost:4000/api/post/schedule", {
+const response =  await fetch("http://localhost:8080/api/posts/schedule", {
 	method: "POST",
 	mode: "cors",
 	headers: {
-		"Access-Control-Allow-Origin": "http://localhost:4000/api/post/schedule",
+		"Access-Control-Allow-Origin": "localhost:8080/api/posts/schedule",
 		"Access-Control-Allow-Headers": "Access-Control-Allow-Origin",
 		"Content-Type": "application/json",
 		"Authorization": `Bearer ${zettelcasting_api_key}`
@@ -258,7 +258,7 @@ export class BakeModal extends Modal {
 			.addDropdown(dropdown => {
 				dropdown
 					.addOption('facebook', 'Facebook')
-					.addOption('twitter', 'X (Twitter)')
+					.addOption('x-twitter', 'X (Twitter)')
 					.setValue(settings.platform)
 					.onChange(async (value) => {
 						settings.platform = value;
