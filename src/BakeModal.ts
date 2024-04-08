@@ -258,7 +258,7 @@ export class BakeModal extends Modal {
 			.addDropdown(dropdown => {
 				dropdown
 					.addOption('facebook', 'Facebook')
-					.addOption('x-twitter', 'X (Twitter)')
+					.addOption('xtwitter', 'X (Twitter)')
 					.setValue(settings.platform)
 					.onChange(async (value) => {
 						settings.platform = value;
