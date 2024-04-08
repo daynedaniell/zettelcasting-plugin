@@ -266,9 +266,6 @@ export class BakeModal extends Modal {
 					});
 			})
 
-
-
-
       this.modalEl.createDiv('modal-button-container', (el) => {
         let outputName = file.basename + '.zcast.md';
         let outputFolder = file.parent?.path || '';
