@@ -20,8 +20,9 @@
 	$: options = {
 		mode,
 		defaultDate:
-			mode === "single" ? "2021-01-01" : ["2022-03-01", "2022-03-04"],
+			mode === "single" ? "2024-01-01" : ["2024-04-01", "2024-04-04"],
 		enableTime: true,
+		minuteIncrement: 1,
 		onChange(selectedDates: any, dateStr: string) {
 			picked_date.set(selectedDates[0]);
 			console.log("flatpickr hook", selectedDates, dateStr);

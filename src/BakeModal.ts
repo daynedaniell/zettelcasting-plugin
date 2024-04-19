@@ -130,11 +130,12 @@ send_note(text, publishDate, settings.platform, settings.zettelcasting_api_key);
 }
 
 async function send_note( text: string, publishDate: Date, platform: string, zettelcasting_api_key: string) {
-const response =  await fetch("http://localhost:8080/api/posts/schedule", {
+  console.log('testing the send note function', text, publishDate, platform, zettelcasting_api_key);
+const response =  await fetch("https://localhost:8080/api/posts/schedule", {
 	method: "POST",
 	mode: "cors",
 	headers: {
-		"Access-Control-Allow-Origin": "localhost:8080/api/posts/schedule",
+		"Access-Control-Allow-Origin": "https://localhost:8080/api/posts/schedule",
 		"Access-Control-Allow-Headers": "Access-Control-Allow-Origin",
 		"Content-Type": "application/json",
 		"Authorization": `Bearer ${zettelcasting_api_key}`
