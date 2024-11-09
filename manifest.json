@@ -1,6 +1,6 @@
 {
-	"id": "zettelcastings",
-	"name": "ZettelCastings",
+	"id": "zettelcasting",
+	"name": "ZettelCasting",
 	"version": "1.0.0",
 	"minAppVersion": "0.15.0",
 	"description": "Use AI to combine and publish your atomic notes to social platforms with the ZettelCastings service.",
