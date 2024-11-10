@@ -65,14 +65,13 @@ async function bake(
   // No cache? Return the file as is...
   if (!cache) return text;
 
-  // Make API call regardless of whether there are targets
-  if (settings.zettelcasting_api_key && settings.platform) {
-    try {
-      await send_note(text, publishDate, settings.platform, settings.zettelcasting_api_key);
-    } catch (error) {
-      console.error("Failed to schedule post:", error);
+    // Get the target block or section if we have a subpath
+    const resolvedSubpath = subpath ? resolveSubpath(cache, subpath) : null;
+    if (resolvedSubpath) {
+      text = extractSubpath(text, resolvedSubpath, cache);
     }
-  }
+
+ 
 
   const links = settings.bakeLinks ? cache.links || [] : [];
   const embeds = settings.bakeEmbeds ? cache.embeds || [] : [];
@@ -151,6 +150,15 @@ async function bake(
     }
   });
   unsubscribe(); // Clean up the subscription
+
+   // Make API call regardless of whether there are targets
+   if (settings.zettelcasting_api_key && settings.platform) {
+    try {
+      await send_note(text, publishDate, settings.platform, settings.zettelcasting_api_key);
+    } catch (error) {
+      console.error("Failed to schedule post:", error);
+    }
+  }
 
   return text;
 }
