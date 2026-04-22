@@ -25,29 +25,6 @@ const lineStartRE = /(?:^|\n) *$/;
 const listLineStartRE = /(?:^|\n)([ \t]*)(?:[-*+]|[0-9]+[.)]) +$/;
 const lineEndRE = /^ *(?:\r?\n|$)/;
 
-async function send_note(text: string, publishDate: Date, platform: string, zettelcasting_api_key: string) {
-	console.log('testing the send note function', text, publishDate, platform, zettelcasting_api_key);
-	const response = await fetch("https://localhost:3001/api/post/schedule", {
-		method: "POST",
-		mode: "cors",
-		headers: {
-			"Access-Control-Allow-Origin": "https://localhost:3001/api/post/schedule",
-			"Access-Control-Allow-Headers": "Access-Control-Allow-Origin",
-			"Content-Type": "application/json",
-			"Authorization": `Bearer ${zettelcasting_api_key}`
-		},
-		body: JSON.stringify({
-			body: {
-				body: text,
-				eventDate: publishDate,
-				platform: platform,
-				zettelcasting_api_key: zettelcasting_api_key
-			}
-		})
-	});
-	console.log("here is the response", response);
-}
-
 async function bake(
   app: App,
   file: TFile,
@@ -59,25 +36,22 @@ async function bake(
 
   let text = await vault.cachedRead(file);
   const cache = metadataCache.getFileCache(file);
-  let publishDate: Date = new Date();
 
 
   // No cache? Return the file as is...
   if (!cache) return text;
 
-    // Get the target block or section if we have a subpath
-    const resolvedSubpath = subpath ? resolveSubpath(cache, subpath) : null;
-    if (resolvedSubpath) {
-      text = extractSubpath(text, resolvedSubpath, cache);
-    }
-
- 
+  // Get the target block or section if we have a subpath
+  const resolvedSubpath = subpath ? resolveSubpath(cache, subpath) : null;
+  if (resolvedSubpath) {
+    text = extractSubpath(text, resolvedSubpath, cache);
+  }
 
   const links = settings.bakeLinks ? cache.links || [] : [];
   const embeds = settings.bakeEmbeds ? cache.embeds || [] : [];
   const targets = [...links, ...embeds];
 
-  // If no targets, return the processed text (after API call)
+  // No links in the current file; we can stop here...
   if (targets.length === 0) return text;
 
   targets.sort((a, b) => a.position.start.offset - b.position.start.offset);
@@ -115,7 +89,7 @@ async function bake(
 
     if (!isMarkdownFile) {
       // Skip link processing if we're not converting file links...
-      //if (!settings.convertFileLinks) continue;
+      if (!settings.convertFileLinks) continue;
 
       const adapter = app.vault.adapter as FileSystemAdapter;
 
@@ -143,25 +117,54 @@ async function bake(
     );
   }
 
-  publishDate = new Date();
-  const unsubscribe = picked_date.subscribe((prev_val) => {
-    if (prev_val !== null) {
-      publishDate = prev_val;
-    }
-  });
-  unsubscribe(); // Clean up the subscription
+let publishDate: Date = new Date();
+picked_date.subscribe((prev_val) => {
+	if (prev_val !== null) {
+		publishDate = prev_val;
+	}
+});
 
-   // Make API call regardless of whether there are targets
-   if (settings.zettelcasting_api_key && settings.platform) {
-    try {
-      await send_note(text, publishDate, settings.platform, settings.zettelcasting_api_key);
-    } catch (error) {
-      console.error("Failed to schedule post:", error);
-    }
-  }
+send_note(text, publishDate, settings.platform, settings.zettelcasting_api_key);
 
   return text;
 }
+
+async function send_note( text: string, publishDate: Date, platform: string, zettelcasting_api_key: string) {
+  console.log('testing the send note function', text, publishDate, platform, zettelcasting_api_key);
+const response =  await fetch("https://moleculer-monorepo-express-middleware-production.up.railway.app/api/integrations/pkm/posts", {
+	method: "POST",
+	mode: "cors",
+	headers: {
+		"Access-Control-Allow-Origin": "https://moleculer-monorepo-express-middleware-production.up.railway.app/api/integrations/pkm/posts",
+		"Access-Control-Allow-Headers": "Access-Control-Allow-Origin",
+		"Content-Type": "application/json",
+		"X-API-Key": `${zettelcasting_api_key}`
+	},
+/*	body: JSON.stringify({
+		body: {
+			body: text,
+			eventDate: publishDate,
+			platform: platform,
+			zettelcasting_api_key: zettelcasting_api_key
+		}
+    
+	}) */
+
+body: JSON.stringify({
+  "body": text,
+  "platform": platform,
+  "scheduledFor": publishDate,
+  "tags": [
+    "post-twitter",
+    "scheduled"
+  ]
+})
+
+
+
+});
+    console.log("here is the response", response);
+  }
 
 function disableBtn(btn: HTMLButtonElement) {
   btn.removeClass('mod-cta');
@@ -243,94 +246,93 @@ export class BakeModal extends Modal {
         })
       );
 
+    new Setting(contentEl).setName('Output file name').then((setting) => {
+      new Setting(contentEl).then((setting) => {
+        setting.addButton((btn) =>
+          btn.setButtonText('Calculate word count').onClick(async () => {
+            const baked = await bake(this.app, file, null, new Set(), settings);
+
+            setting.descEl.setText(getWordCount(baked).toString());
+          })
+        );
+      });
+
+      new Setting(contentEl)
+			.setName('Zettelcasting API Key')
+			.addText(text => text
+				.setPlaceholder('Enter your zettelcasting api key')
+		.setValue(settings.zettelcasting_api_key)
+				.onChange(async (value) => {
+					settings.zettelcasting_api_key = value;
+					await plugin.saveSettings();
+				}));
+
+
     new Setting(contentEl)
-      .setName('Output file name')
-      .then((setting) => {
-        new Setting(contentEl)
-          .then((setting) => {
-            setting.addButton((btn) =>
-              btn.setButtonText('Calculate word count').onClick(async () => {
-                const baked = await bake(this.app, file, null, new Set(), settings);
-                setting.descEl.setText(getWordCount(baked).toString());
-              })
-            );
-          });
+			.setName('Publish to Platform')
+			.addDropdown(dropdown => {
+				dropdown
+					.addOption('facebook', 'Facebook')
+					.addOption('xtwitter', 'X (Twitter)')
+          .addOption('instagram', 'Instagram')
+          .addOption('LinkedIn', 'LinkedIn')
+					.setValue(settings.platform)
+					.onChange(async (value) => {
+						settings.platform = value;
+						await plugin.saveSettings();
+					});
+			})
 
-        new Setting(contentEl)
-          .setName('Zettelcasting API Key')
-          .addText(text => text
-            .setPlaceholder('Enter your zettelcasting api key')
-            .setValue(settings.zettelcasting_api_key)
-            .onChange(async (value) => {
-              settings.zettelcasting_api_key = value;
-              await plugin.saveSettings();
-            }));
+      this.modalEl.createDiv('modal-button-container', (el) => {
+        let outputName = file.basename + '.zcast.md';
+        let outputFolder = file.parent?.path || '';
 
-        new Setting(contentEl)
-          .setName('Publish to Platform')
-          .addDropdown(dropdown => {
-            dropdown
-              .addOption('facebook', 'Facebook')
-              .addOption('xtwitter', 'X (Twitter)')
-              .addOption('instagram', 'Instagram')
-              .addOption('linkedin', 'LinkedIn')
-              .setValue(settings.platform)
-              .onChange(async (value) => {
-                settings.platform = value;
-                await plugin.saveSettings();
-              });
-          });
+        if (outputFolder) outputFolder += '/';
 
-        this.modalEl.createDiv('modal-button-container', (el) => {
-          let outputName = file.basename + '.zcast.md';
-          let outputFolder = file.parent?.path || '';
+        const btn = el.createEl('button', {
+          cls: 'mod-cta',
+          text: 'Schedule Post',
+        });
 
-          if (outputFolder) outputFolder += '/';
+        activeWindow.setTimeout(() => {
+          // Set focus so users can quickly press enter
+          btn.focus();
+        });
 
-          const btn = el.createEl('button', {
-            cls: 'mod-cta',
-            text: 'Schedule Post',
-          });
+        btn.addEventListener('click', async () => {
+          disableBtn(btn);
+          if (outputName) {
+            const { vault } = this.app;
+            const baked = await bake(this.app, file, null, new Set(), settings);
+            const nextPath = outputFolder + outputName + '.md';
+            let existing = vault.getAbstractFileByPath(nextPath);
 
-          activeWindow.setTimeout(() => {
-            // Set focus so users can quickly press enter
-            btn.focus();
-          });
-
-          btn.addEventListener('click', async () => {
-            disableBtn(btn);
-            if (outputName) {
-              const { vault } = this.app;
-              const baked = await bake(this.app, file, null, new Set(), settings);
-              const nextPath = outputFolder + outputName.replace(/\.md$/, '') + '.md';
-              let existing = vault.getAbstractFileByPath(nextPath);
-
-              if (existing instanceof TFile) {
-                await vault.modify(existing, baked);
-              } else {
-                existing = await vault.create(nextPath, baked);
-              }
-
-              if (existing instanceof TFile) {
-                this.app.workspace.getLeaf('tab').openFile(existing);
-              }
+            if (existing instanceof TFile) {
+              await vault.modify(existing, baked);
+            } else {
+              existing = await vault.create(nextPath, baked);
             }
 
-            this.close();
-          });
+            if (existing instanceof TFile) {
+              this.app.workspace.getLeaf('tab').openFile(existing);
+            }
+          }
 
-          setting.addText((text) =>
-            text.setValue(outputName).onChange((value) => {
-              outputName = value;
-              if (!value) {
-                disableBtn(btn);
-              } else if (btn.disabled) {
-                enableBtn(btn);
-              }
-            })
-          );
+          this.close();
         });
+
+        setting.addText((text) =>
+          text.setValue(outputName).onChange((value) => {
+            outputName = value;
+            if (!value) {
+              disableBtn(btn);
+            } else if (btn.disabled) {
+              enableBtn(btn);
+            }
+          })
+        );
       });
+    });
   }
 
 
@@ -345,5 +347,6 @@ onClose() {
 	const {contentEl} = this;
 	contentEl.empty();
 }
+
 
 }

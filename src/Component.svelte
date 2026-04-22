@@ -20,7 +20,7 @@
 	$: options = {
 		mode,
 		defaultDate:
-			mode === "single" ? "2024-11-01" : ["2024-11-01", "2024-12-04"],
+			mode === "single" ? "2024-01-01" : ["2024-04-01", "2024-04-04"],
 		enableTime: true,
 		minuteIncrement: 1,
 		onChange(selectedDates: any, dateStr: string) {
@@ -59,6 +59,8 @@
 			(event.target as HTMLFormElement).elements["date"].value,
 		);
 	}
+
+	export let variable: number;
 </script>
 
 <Flatpickr
