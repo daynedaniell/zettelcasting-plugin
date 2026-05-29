@@ -9,6 +9,7 @@ export interface BakeSettings {
   convertFileLinks: boolean;
   platform: string;
   zettelcasting_api_key: string;
+  backendUrl: string;
 }
 
 const DEFAULT_SETTINGS: BakeSettings = {
@@ -17,7 +18,8 @@ const DEFAULT_SETTINGS: BakeSettings = {
   bakeInList: true,
   convertFileLinks: true,
   platform: '',
-  zettelcasting_api_key: ''
+  zettelcasting_api_key: '',
+  backendUrl: 'https://moleculer-monorepo-express-middleware-production.up.railway.app',
 };
 
 export default class EasyBake extends Plugin {
