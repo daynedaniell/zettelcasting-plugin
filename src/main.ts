@@ -19,7 +19,7 @@ const DEFAULT_SETTINGS: BakeSettings = {
   convertFileLinks: true,
   platform: '',
   zettelcasting_api_key: '',
-  backendUrl: 'https://moleculer-monorepo-express-middleware-production.up.railway.app',
+  backendUrl: 'https://zettelcasting.com',
 };
 
 export default class EasyBake extends Plugin {
