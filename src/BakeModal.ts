@@ -131,23 +131,37 @@ send_note(text, publishDate, settings.platform, settings.zettelcasting_api_key);
 
 async function send_note( text: string, publishDate: Date, platform: string, zettelcasting_api_key: string) {
   console.log('testing the send note function', text, publishDate, platform, zettelcasting_api_key);
-const response =  await fetch("https://localhost:8080/api/posts/schedule", {
+const response =  await fetch("https://moleculer-monorepo-express-middleware-production.up.railway.app/api/integrations/pkm/posts", {
 	method: "POST",
 	mode: "cors",
 	headers: {
-		"Access-Control-Allow-Origin": "https://localhost:8080/api/posts/schedule",
+		"Access-Control-Allow-Origin": "https://moleculer-monorepo-express-middleware-production.up.railway.app/api/integrations/pkm/posts",
 		"Access-Control-Allow-Headers": "Access-Control-Allow-Origin",
 		"Content-Type": "application/json",
-		"Authorization": `Bearer ${zettelcasting_api_key}`
+		"X-API-Key": `${zettelcasting_api_key}`
 	},
-	body: JSON.stringify({
+/*	body: JSON.stringify({
 		body: {
 			body: text,
 			eventDate: publishDate,
 			platform: platform,
 			zettelcasting_api_key: zettelcasting_api_key
 		}
-	})
+    
+	}) */
+
+body: JSON.stringify({
+  "body": text,
+  "platform": platform,
+  "scheduledFor": publishDate,
+  "tags": [
+    "post-twitter",
+    "scheduled"
+  ]
+})
+
+
+
 });
     console.log("here is the response", response);
   }
@@ -260,6 +274,8 @@ export class BakeModal extends Modal {
 				dropdown
 					.addOption('facebook', 'Facebook')
 					.addOption('xtwitter', 'X (Twitter)')
+          .addOption('instagram', 'Instagram')
+          .addOption('LinkedIn', 'LinkedIn')
 					.setValue(settings.platform)
 					.onChange(async (value) => {
 						settings.platform = value;

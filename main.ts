@@ -115,17 +115,18 @@ export default class ZettelCastingPlugin extends Plugin {
 	}
 
 async send_note(text: string, zettelcasting_api_key: string) {
-		const response =  await fetch("http://localhost:4000/api/v1/processnotes", {
+		const response =  await fetch("https://zettelcasting.com/api/integrations/pkm/posts", {
 			method: "POST",
 			mode: "cors",
 			headers: {
 				"Content-Type": "application/json",
-				"Authorization": `Bearer ${zettelcasting_api_key}`
+				"X-API-KEY": `${zettelcasting_api_key}`
 			},
 			body: JSON.stringify({
-				text: text,
-				"zettelcasting_api_key": zettelcasting_api_key
-				
+				body: text,
+				platform: "twitter",
+				scheduledFor: new Date().toISOString(),
+				source: "obsidian-plugin"
 			})
 		});
 		console.log('here is the response', response);

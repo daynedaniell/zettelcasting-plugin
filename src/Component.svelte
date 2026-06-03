@@ -12,7 +12,7 @@
 
 	export let value: undefined = undefined,
 		formattedValue: any,
-		flatpickr;
+		flatpickr: Flatpickr;
 
 	let mode = "single";
 
@@ -32,7 +32,7 @@
 		},
 	};
 
-	function handleOpen(event) {
+	function handleOpen(event: Event) {
 		event.preventDefault();
 
 		if (flatpickr) {
@@ -53,21 +53,16 @@
 		}
 	}
 
-	function handleSubmit(event) {
-		event.preventDefault();
-
+	function handleSubmit(event: SubmitEvent) {
 		console.log(
 			"coming from the component itself on handleSubmit",
-			event.target.elements["date"].value,
+			(event.target as HTMLFormElement).elements["date"].value,
 		);
 	}
 
 	export let variable: number;
 </script>
 
-<div class="number">
-	<span>My number is {variable}!</span>
-</div>
 <Flatpickr
 	{options}
 	bind:value
@@ -81,9 +76,3 @@
 	dateFormat="Y-m-d"
 />
 <button type="button" on:click={handleOpen}> Open picker </button>
-
-<style>
-	.number {
-		color: red;
-	}
-</style>
