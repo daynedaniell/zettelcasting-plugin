@@ -1,7 +1,7 @@
 {
 	"name": "obsidian-zettelcastings",
 	"version": "1.0.0",
-	"description": "Use AI to combine and publish your atomic notes to social platforms with the ZettelCastings service.",
+	"description": "publish your atomic notes to social platforms with the ZettelCastings service.",
 	"main": "main.js",
 	"scripts": {
 		"dev": "node esbuild.config.mjs",

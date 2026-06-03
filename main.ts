@@ -2,12 +2,12 @@ import { App, Editor, MarkdownView, Modal, Notice, Plugin, PluginSettingTab, Set
 const Obsidian = require('obsidian');
 // Remember to rename these classes and interfaces!
 
-interface MyPluginSettings {
+interface ZettelCastingSettings {
 	my_setting: string;
 	zettelcasting_api_key: string;
 }
 
-const DEFAULT_SETTINGS: MyPluginSettings = {
+const DEFAULT_SETTINGS: ZettelCastingSettings = {
 	my_setting: 'default',
 	zettelcasting_api_key: '7f731752-00c3-4b77-92ae-a0c2bb0cc1c2',
 	
@@ -16,7 +16,7 @@ const DEFAULT_SETTINGS: MyPluginSettings = {
 
 
 export default class ZettelCastingPlugin extends Plugin {
-	settings: MyPluginSettings;
+	settings: ZettelCastingSettings;
 
 	async onload() {
 		//await this.loadSettings();
@@ -25,7 +25,7 @@ export default class ZettelCastingPlugin extends Plugin {
 		// This creates an icon in the left ribbon.
 		const ribbonIconEl = this.addRibbonIcon('dice', 'ZettelCasting', (evt: MouseEvent) => {
 			// Called when the user clicks the icon.
-			new Notice('This is a notice!');
+
 		});
 		// Perform additional things with the ribbon
 		ribbonIconEl.addClass('my-plugin-ribbon-class');
