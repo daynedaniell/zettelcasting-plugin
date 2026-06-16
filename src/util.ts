@@ -7,6 +7,26 @@ import {
 export const wordCountRE = /\P{Z}*[\p{L}\p{N}]\P{Z}*/gu;
 export const commentRE = /(?:<!--[\s\S]*?-->|%%[\s\S]*?(?!%%)[\s\S]+?%%)/g;
 
+/**
+ * Media extensions the ZettelCasting backend accepts for upload. Mirrors the
+ * server's SUPPORTED_MEDIA_TYPES allowlist. Used to decide which embedded
+ * (non-markdown) files get uploaded to the backend vs. left as plain links.
+ */
+export const MEDIA_MIME_BY_EXT: Record<string, string> = {
+  png: 'image/png',
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  gif: 'image/gif',
+  webp: 'image/webp',
+  mp4: 'video/mp4',
+  mov: 'video/quicktime',
+  webm: 'video/webm',
+};
+
+export function mimeFromExtension(ext: string): string | null {
+  return MEDIA_MIME_BY_EXT[ext.toLowerCase()] ?? null;
+}
+
 export function stripComments(text: string): string {
   return text.replace(commentRE, '');
 }

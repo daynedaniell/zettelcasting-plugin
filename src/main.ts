@@ -2,6 +2,12 @@ import { Plugin } from 'obsidian';
 
 import { BakeModal } from './BakeModal';
 
+/**
+ * ZettelCasting API origin. This is a fixed deployment endpoint and is
+ * intentionally not user-configurable.
+ */
+export const BACKEND_URL = 'https://zettelcasting.com';
+
 export interface BakeSettings {
   bakeLinks: boolean;
   bakeEmbeds: boolean;
@@ -9,7 +15,6 @@ export interface BakeSettings {
   convertFileLinks: boolean;
   platform: string;
   zettelcasting_api_key: string;
-  backendUrl: string;
 }
 
 const DEFAULT_SETTINGS: BakeSettings = {
@@ -19,7 +24,6 @@ const DEFAULT_SETTINGS: BakeSettings = {
   convertFileLinks: true,
   platform: '',
   zettelcasting_api_key: '',
-  backendUrl: 'https://zettelcasting.com',
 };
 
 export default class EasyBake extends Plugin {

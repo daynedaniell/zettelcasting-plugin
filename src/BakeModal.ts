@@ -3,6 +3,7 @@ import {
   DropdownComponent,
   FileSystemAdapter,
   Modal,
+  Notice,
   Platform,
   Setting,
   TFile,
@@ -10,11 +11,12 @@ import {
   resolveSubpath,
 } from 'obsidian';
 
-import EasyBake, { BakeSettings } from './main';
+import EasyBake, { BACKEND_URL, BakeSettings } from './main';
 import {
   applyIndent,
   extractSubpath,
   getWordCount,
+  mimeFromExtension,
   sanitizeBakedContent,
   stripFirstBullet,
 } from './util';
@@ -40,7 +42,10 @@ async function bake(
   file: TFile,
   subpath: string | null,
   ancestors: Set<TFile>,
-  settings: BakeSettings
+  settings: BakeSettings,
+  // Collects embedded image/video files encountered while baking so the caller
+  // can upload them and attach the resulting URLs to the post.
+  media: Set<TFile> = new Set()
 ) {
   const { vault, metadataCache } = app;
 
@@ -92,6 +97,14 @@ async function bake(
     };
 
     if (!isMarkdownFile) {
+      // Supported image/video embeds are collected for upload and removed from
+      // the post body — a local file:// URI is useless to the remote backend.
+      if (mimeFromExtension(linkedFile.extension)) {
+        media.add(linkedFile);
+        replaceTarget('');
+        continue;
+      }
+
       if (!settings.convertFileLinks) continue;
 
       const adapter = app.vault.adapter as FileSystemAdapter;
@@ -109,7 +122,7 @@ async function bake(
     }
 
     const baked = sanitizeBakedContent(
-      await bake(app, linkedFile, subpath, newAncestors, settings)
+      await bake(app, linkedFile, subpath, newAncestors, settings, media)
     );
     replaceTarget(
       listMatch ? applyIndent(stripFirstBullet(baked), listMatch[1]) : baked
@@ -119,42 +132,71 @@ async function bake(
   return text;
 }
 
-async function send_note( text: string, publishDate: Date, platform: string, zettelcasting_api_key: string) {
-  console.log('testing the send note function', text, publishDate, platform, zettelcasting_api_key);
-const response =  await fetch("https://moleculer-monorepo-express-middleware-production.up.railway.app/api/integrations/pkm/posts", {
-	method: "POST",
-	mode: "cors",
-	headers: {
-		"Access-Control-Allow-Origin": "https://moleculer-monorepo-express-middleware-production.up.railway.app/api/integrations/pkm/posts",
-		"Access-Control-Allow-Headers": "Access-Control-Allow-Origin",
-		"Content-Type": "application/json",
-		"X-API-Key": `${zettelcasting_api_key}`
-	},
-/*	body: JSON.stringify({
-		body: {
-			body: text,
-			eventDate: publishDate,
-			platform: platform,
-			zettelcasting_api_key: zettelcasting_api_key
-		}
-    
-	}) */
+/** Resolve the API base origin, trimming any trailing slash. */
+function apiBase(backendUrl: string): string {
+  return (backendUrl || '').replace(/\/$/, '');
+}
 
-body: JSON.stringify({
-  "body": text,
-  "platform": platform,
-  "scheduledFor": publishDate,
-  "tags": [
-    "post-twitter",
-    "scheduled"
-  ]
-})
+/**
+ * Upload a single embedded media file to the backend staging endpoint and
+ * return the fetchable URL the post can reference. Throws on failure so the
+ * caller can abort posting rather than silently dropping media.
+ */
+async function uploadMedia(
+  app: App,
+  file: TFile,
+  backendUrl: string,
+  apiKey: string
+): Promise<string> {
+  const bytes = await app.vault.readBinary(file);
+  const mime = mimeFromExtension(file.extension) ?? 'application/octet-stream';
 
+  const form = new FormData();
+  // Don't set Content-Type manually — the runtime adds the multipart boundary.
+  form.append('file', new Blob([bytes], { type: mime }), file.name);
 
+  const resp = await fetch(`${apiBase(backendUrl)}/api/integrations/pkm/media`, {
+    method: 'POST',
+    headers: { 'X-API-Key': apiKey },
+    body: form,
+  });
 
-});
-    console.log("here is the response", response);
+  if (!resp.ok) {
+    throw new Error(`Upload failed (${resp.status}) for ${file.name}`);
   }
+
+  const { url } = (await resp.json()) as { url: string };
+  return url;
+}
+
+async function send_note(
+  text: string,
+  publishDate: Date,
+  platform: string,
+  zettelcasting_api_key: string,
+  backendUrl: string,
+  media: string[]
+) {
+  const response = await fetch(`${apiBase(backendUrl)}/api/integrations/pkm/posts`, {
+    method: 'POST',
+    mode: 'cors',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-API-Key': `${zettelcasting_api_key}`,
+    },
+    body: JSON.stringify({
+      body: text,
+      platform: platform,
+      scheduledFor: publishDate,
+      media: media,
+      tags: ['scheduled'],
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to schedule post (${response.status})`);
+  }
+}
 
 function disableBtn(btn: HTMLButtonElement) {
   btn.removeClass('mod-cta');
@@ -264,8 +306,7 @@ export class BakeModal extends Modal {
         platformStatusEl.style.color = 'var(--text-muted)';
 
         try {
-          const base = (settings.backendUrl || '').replace(/\/$/, '');
-          const resp = await fetch(`${base}/api/integrations/pkm/platforms`, {
+          const resp = await fetch(`${apiBase(BACKEND_URL)}/api/integrations/pkm/platforms`, {
             headers: { 'X-API-Key': apiKey },
           });
 
@@ -317,7 +358,7 @@ export class BakeModal extends Modal {
           platformStatusEl.style.color = 'var(--text-success)';
         } catch {
           platformStatusEl.setText(
-            'Could not reach the ZettelCasting server. Check the backend URL in settings.'
+            'Could not reach the ZettelCasting server. Please try again later.'
           );
           platformStatusEl.style.color = 'var(--text-error)';
         }
@@ -343,20 +384,20 @@ export class BakeModal extends Modal {
         attr: { style: 'padding: 0 var(--size-4-3) var(--size-4-2);' },
       });
 
-    new Setting(contentEl)
-			.setName('Publish to Platform')
-			.addDropdown(dropdown => {
-				dropdown
-					.addOption('facebook', 'Facebook')
-					.addOption('xtwitter', 'X (Twitter)')
-          .addOption('instagram', 'Instagram')
-          .addOption('LinkedIn', 'LinkedIn')
-					.setValue(settings.platform)
-					.onChange(async (value) => {
-						settings.platform = value;
-						await plugin.saveSettings();
-					});
-			})
+      new Setting(contentEl)
+        .setName('Publish to Platform')
+        .addDropdown((dropdown) => {
+          // Populated by refreshPlatforms() with the user's actually-connected
+          // platforms — no hardcoded options.
+          platformDropdown = dropdown;
+          dropdown.onChange(async (value) => {
+            settings.platform = value;
+            await plugin.saveSettings();
+          });
+        });
+
+      // Populate the dropdown on open from the saved key/backend URL.
+      void refreshPlatforms();
 
       this.modalEl.createDiv('modal-button-container', (el) => {
         let outputName = file.basename + '.zcast.md';
@@ -383,14 +424,62 @@ export class BakeModal extends Modal {
               if (val !== null) publishDate = val;
             });
 
-            const baked = await bake(this.app, file, null, new Set(), settings);
+            const mediaFiles = new Set<TFile>();
+            const baked = await bake(
+              this.app,
+              file,
+              null,
+              new Set(),
+              settings,
+              mediaFiles
+            );
 
-            await send_note(
-              baked,
-              publishDate,
-              settings.platform,
-              settings.zettelcasting_api_key,
-              settings.backendUrl,
+            // Upload embedded images/videos first; abort the post if any fail
+            // so we never schedule a post that's missing its media.
+            const mediaUrls: string[] = [];
+            try {
+              for (const mediaFile of mediaFiles) {
+                mediaUrls.push(
+                  await uploadMedia(
+                    this.app,
+                    mediaFile,
+                    BACKEND_URL,
+                    settings.zettelcasting_api_key
+                  )
+                );
+              }
+            } catch (err) {
+              new Notice(
+                err instanceof Error ? err.message : 'Media upload failed',
+                8000
+              );
+              enableBtn(btn);
+              return;
+            }
+
+            try {
+              await send_note(
+                baked,
+                publishDate,
+                settings.platform,
+                settings.zettelcasting_api_key,
+                BACKEND_URL,
+                mediaUrls
+              );
+            } catch (err) {
+              new Notice(
+                err instanceof Error ? err.message : 'Failed to schedule post',
+                8000
+              );
+              enableBtn(btn);
+              return;
+            }
+
+            const count = mediaUrls.length;
+            new Notice(
+              count > 0
+                ? `Scheduled post with ${count} media file${count === 1 ? '' : 's'}.`
+                : 'Scheduled post.'
             );
 
             const nextPath = outputFolder + outputName + '.md';
