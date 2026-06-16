@@ -4,6 +4,7 @@ import {
   FileSystemAdapter,
   Modal,
   Notice,
+  Notice,
   Platform,
   Setting,
   TFile,
@@ -16,6 +17,7 @@ import {
   applyIndent,
   extractSubpath,
   getWordCount,
+  mimeFromExtension,
   mimeFromExtension,
   sanitizeBakedContent,
   stripFirstBullet,
@@ -42,6 +44,10 @@ async function bake(
   file: TFile,
   subpath: string | null,
   ancestors: Set<TFile>,
+  settings: BakeSettings,
+  // Collects embedded image/video files encountered while baking so the caller
+  // can upload them and attach the resulting URLs to the post.
+  media: Set<TFile> = new Set()
   settings: BakeSettings,
   // Collects embedded image/video files encountered while baking so the caller
   // can upload them and attach the resulting URLs to the post.
@@ -105,6 +111,14 @@ async function bake(
         continue;
       }
 
+      // Supported image/video embeds are collected for upload and removed from
+      // the post body — a local file:// URI is useless to the remote backend.
+      if (mimeFromExtension(linkedFile.extension)) {
+        media.add(linkedFile);
+        replaceTarget('');
+        continue;
+      }
+
       if (!settings.convertFileLinks) continue;
 
       const adapter = app.vault.adapter as FileSystemAdapter;
@@ -123,6 +137,7 @@ async function bake(
 
     const baked = sanitizeBakedContent(
       await bake(app, linkedFile, subpath, newAncestors, settings, media)
+      await bake(app, linkedFile, subpath, newAncestors, settings, media)
     );
     replaceTarget(
       listMatch ? applyIndent(stripFirstBullet(baked), listMatch[1]) : baked
@@ -132,6 +147,71 @@ async function bake(
   return text;
 }
 
+/** Resolve the API base origin, trimming any trailing slash. */
+function apiBase(backendUrl: string): string {
+  return (backendUrl || '').replace(/\/$/, '');
+}
+
+/**
+ * Upload a single embedded media file to the backend staging endpoint and
+ * return the fetchable URL the post can reference. Throws on failure so the
+ * caller can abort posting rather than silently dropping media.
+ */
+async function uploadMedia(
+  app: App,
+  file: TFile,
+  backendUrl: string,
+  apiKey: string
+): Promise<string> {
+  const bytes = await app.vault.readBinary(file);
+  const mime = mimeFromExtension(file.extension) ?? 'application/octet-stream';
+
+  const form = new FormData();
+  // Don't set Content-Type manually — the runtime adds the multipart boundary.
+  form.append('file', new Blob([bytes], { type: mime }), file.name);
+
+  const resp = await fetch(`${apiBase(backendUrl)}/api/integrations/pkm/media`, {
+    method: 'POST',
+    headers: { 'X-API-Key': apiKey },
+    body: form,
+  });
+
+  if (!resp.ok) {
+    throw new Error(`Upload failed (${resp.status}) for ${file.name}`);
+  }
+
+  const { url } = (await resp.json()) as { url: string };
+  return url;
+}
+
+async function send_note(
+  text: string,
+  publishDate: Date,
+  platform: string,
+  zettelcasting_api_key: string,
+  backendUrl: string,
+  media: string[]
+) {
+  const response = await fetch(`${apiBase(backendUrl)}/api/integrations/pkm/posts`, {
+    method: 'POST',
+    mode: 'cors',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-API-Key': `${zettelcasting_api_key}`,
+    },
+    body: JSON.stringify({
+      body: text,
+      platform: platform,
+      scheduledFor: publishDate,
+      media: media,
+      tags: ['scheduled'],
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to schedule post (${response.status})`);
+  }
+}
 /** Resolve the API base origin, trimming any trailing slash. */
 function apiBase(backendUrl: string): string {
   return (backendUrl || '').replace(/\/$/, '');
@@ -363,6 +443,21 @@ export class BakeModal extends Modal {
           platformStatusEl.style.color = 'var(--text-error)';
         }
       };
+
+      // --- Backend URL input ---
+      new Setting(contentEl)
+        .setName('Backend URL')
+        .setDesc('ZettelCasting API origin (e.g. https://zettelcasting.com)')
+        .addText((text) =>
+          text
+            .setPlaceholder('https://zettelcasting.com')
+            .setValue(settings.backendUrl)
+            .onChange(async (value) => {
+              settings.backendUrl = value;
+              await plugin.saveSettings();
+              await refreshPlatforms();
+            })
+        );
 
       // --- API key input ---
       new Setting(contentEl)
