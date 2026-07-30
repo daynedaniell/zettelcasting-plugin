@@ -4,8 +4,7 @@
 	"version": "1.0.0",
 	"minAppVersion": "0.15.0",
 	"description": "Use AI to combine and publish your atomic notes to social platforms with the ZettelCastings service.",
-	"author": "Obsidian",
-	"authorUrl": "https://obsidian.md",
-	"fundingUrl": "https://obsidian.md/pricing",
+	"author": "Dayne Daniell",
+	"authorUrl": "https://zettelcasting.com",
 	"isDesktopOnly": true
 }

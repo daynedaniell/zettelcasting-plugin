@@ -832,3 +832,29 @@ span.flatpickr-weekday {
 		transform: translate3d(0, 0, 0);
 	}
 }
+
+/* ZettelCasting: connected-platform status line, in the modal and settings. */
+.zettelcasting-platform-status {
+	padding: 0 var(--size-4-3) var(--size-4-2);
+	color: var(--text-muted);
+}
+
+/* The settings tab supplies its own gutter, so drop the modal's inset there. */
+.vertical-tab-content .zettelcasting-platform-status {
+	padding-left: 0;
+	padding-right: 0;
+}
+
+.zettelcasting-platform-status.is-error {
+	color: var(--text-error);
+}
+
+.zettelcasting-platform-status.is-success {
+	color: var(--text-success);
+}
+
+/* ZettelCasting: warning shown when a published branch spans archived cards. */
+.zettelcasting-archived-warning {
+	padding: 0 var(--size-4-3) var(--size-4-2);
+	color: var(--text-warning);
+}

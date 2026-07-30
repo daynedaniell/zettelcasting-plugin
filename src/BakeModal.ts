@@ -1,6 +1,5 @@
 import {
   App,
-  DropdownComponent,
   FileSystemAdapter,
   Modal,
   Notice,
@@ -11,33 +10,40 @@ import {
   resolveSubpath,
 } from 'obsidian';
 
-import EasyBake, { BACKEND_URL, BakeSettings } from './main';
+import { BACKEND_URL, apiBase } from './api';
+import EasyBake, { BakeSettings } from './main';
+import { PlatformSelect, createPlatformSelect } from './platform-select';
 import {
   applyIndent,
   extractSubpath,
+  finalizeSubpath,
   getWordCount,
   mimeFromExtension,
+  normalizeForPublishing,
   sanitizeBakedContent,
+  smartFormat,
   stripFirstBullet,
 } from './util';
 
+import { BranchWritingSelection, findRangeInFile } from './branch-writing';
+
 import Component from './Component.svelte';
 import { picked_date } from './date.store';
+import { get } from 'svelte/store';
 
 const lineStartRE = /(?:^|\n) *$/;
 const listLineStartRE = /(?:^|\n)([ \t]*)(?:[-*+]|[0-9]+[.)]) +$/;
 const lineEndRE = /^ *(?:\r?\n|$)/;
 
-interface PlatformWithConnectionDto {
-  key: string;
-  provider: string;
-  name: string;
-  logoUrl: string;
-  enabled: boolean;
-  isConnected: boolean;
-}
+/**
+ * Offset just past the root note's YAML frontmatter, or undefined when it has
+ * none. Passed to normalizeForPublishing so the frontmatter is removed by
+ * position rather than by a regex that can misfire on a leading `---` rule.
+ */
+const frontmatterEndOffset = (app: App, file: TFile): number | undefined =>
+  app.metadataCache.getFileCache(file)?.frontmatterPosition?.end.offset;
 
-async function bake(
+export async function bake(
   app: App,
   file: TFile,
   subpath: string | null,
@@ -45,7 +51,10 @@ async function bake(
   settings: BakeSettings,
   // Collects embedded image/video files encountered while baking so the caller
   // can upload them and attach the resulting URLs to the post.
-  media: Set<TFile> = new Set()
+  media: Set<TFile> = new Set(),
+  // Publish only this span of the file (a Branch Writing card or branch).
+  // Only ever set by the top-level call; recursion never passes it.
+  range?: [number, number]
 ) {
   const { vault, metadataCache } = app;
 
@@ -54,31 +63,66 @@ async function bake(
 
   if (!cache) return text;
 
+  // Narrow the note to a `#subpath` section or an explicit span. Both shift the
+  // text out from under the metadata-cache offsets the splice loop uses, so the
+  // window is recorded and every offset is re-based by `sliceStart` below.
+  // Only one can be active: `range` is passed only by the top-level card and
+  // branch commands, which never use a subpath.
+  let sliceStart = 0;
+  let sliceEnd = text.length;
+  let finalize: ((value: string) => string) | null = null;
+
   const resolvedSubpath = subpath ? resolveSubpath(cache, subpath) : null;
   if (resolvedSubpath) {
-    text = extractSubpath(text, resolvedSubpath, cache);
+    const extraction = extractSubpath(text, resolvedSubpath, cache);
+    text = extraction.text;
+    sliceStart = extraction.offset;
+    sliceEnd = extraction.offset + extraction.text.length;
+    // `dedent`/`stripBlockId` change lengths, so they run after splicing.
+    finalize = (value) => finalizeSubpath(value, extraction);
+  } else if (range) {
+    text = text.slice(range[0], range[1]);
+    sliceStart = range[0];
+    sliceEnd = range[1];
   }
 
-  const links = settings.bakeLinks ? cache.links || [] : [];
-  const embeds = settings.bakeEmbeds ? cache.embeds || [] : [];
-  const targets = [...links, ...embeds];
+  const done = (value: string) => (finalize ? finalize(value) : value);
 
-  if (targets.length === 0) return text;
+  const links = (settings.bakeLinks ? cache.links || [] : []).map((ref) => ({
+    ref,
+    isEmbed: false,
+  }));
+  // Embeds are always scanned so that embedded media can be collected for
+  // upload regardless of `bakeEmbeds` — that toggle only controls whether
+  // embedded *markdown* gets inlined (enforced below).
+  const embeds = (cache.embeds || []).map((ref) => ({ ref, isEmbed: true }));
+  // Drop anything outside the window; a no-op when the whole note is in play.
+  const targets = [...links, ...embeds].filter(
+    ({ ref }) =>
+      ref.position.start.offset >= sliceStart &&
+      ref.position.end.offset <= sliceEnd
+  );
 
-  targets.sort((a, b) => a.position.start.offset - b.position.start.offset);
+  if (targets.length === 0) return done(text);
+
+  targets.sort(
+    (a, b) => a.ref.position.start.offset - b.ref.position.start.offset
+  );
 
   const newAncestors = new Set(ancestors);
   newAncestors.add(file);
 
   let posOffset = 0;
-  for (const target of targets) {
+  for (const { ref: target, isEmbed } of targets) {
     const { path, subpath } = parseLinktext(target.link);
     const linkedFile = metadataCache.getFirstLinkpathDest(path, file.path);
 
     if (!linkedFile) continue;
 
-    const start = target.position.start.offset + posOffset;
-    const end = target.position.end.offset + posOffset;
+    // `sliceStart` is 0 unless we narrowed to a span, so the whole-file path is
+    // arithmetically unchanged.
+    const start = target.position.start.offset - sliceStart + posOffset;
+    const end = target.position.end.offset - sliceStart + posOffset;
     const prevLen = end - start;
 
     const before = text.substring(0, start);
@@ -116,25 +160,27 @@ async function bake(
       continue;
     }
 
+    // Embedded markdown is only inlined when the user opted in; leave the
+    // ![[wikilink]] untouched otherwise.
+    if (isEmbed && !settings.bakeEmbeds) continue;
+
     if (newAncestors.has(linkedFile) || isInline) {
       replaceTarget(target.displayText || path);
       continue;
     }
 
+    // Strip the child's frontmatter by cached position where possible — the
+    // regex fallback cannot tell it from a leading `---` horizontal rule.
     const baked = sanitizeBakedContent(
-      await bake(app, linkedFile, subpath, newAncestors, settings, media)
+      await bake(app, linkedFile, subpath, newAncestors, settings, media),
+      metadataCache.getFileCache(linkedFile)?.frontmatterPosition?.end.offset
     );
     replaceTarget(
       listMatch ? applyIndent(stripFirstBullet(baked), listMatch[1]) : baked
     );
   }
 
-  return text;
-}
-
-/** Resolve the API base origin, trimming any trailing slash. */
-function apiBase(backendUrl: string): string {
-  return (backendUrl || '').replace(/\/$/, '');
+  return done(text);
 }
 
 /**
@@ -165,7 +211,14 @@ async function uploadMedia(
     throw new Error(`Upload failed (${resp.status}) for ${file.name}`);
   }
 
-  const { url } = (await resp.json()) as { url: string };
+  const { url } = (await resp.json()) as { url?: unknown };
+
+  // Guard the shape: a missing url would otherwise be posted as `null` in the
+  // media array and the post would silently lose its image.
+  if (typeof url !== 'string' || !url) {
+    throw new Error(`Upload returned no URL for ${file.name}`);
+  }
+
   return url;
 }
 
@@ -201,19 +254,32 @@ async function send_note(
 function disableBtn(btn: HTMLButtonElement) {
   btn.removeClass('mod-cta');
   btn.addClass('mod-muted');
-  btn.setAttrs({ disabled: 'true', 'aria-disabled': 'true' });
+  // `disabled` is a boolean attribute — setAttribute('disabled', 'false') would
+  // still disable it, so drive the property and remove the attribute instead.
+  btn.disabled = true;
+  btn.setAttr('aria-disabled', 'true');
 }
 
 function enableBtn(btn: HTMLButtonElement) {
   btn.removeClass('mod-muted');
   btn.addClass('mod-cta');
-  btn.setAttrs({ disabled: 'false', 'aria-disabled': 'false' });
+  btn.disabled = false;
+  btn.removeAttribute('aria-disabled');
 }
 
 export class BakeModal extends Modal {
   component!: Component;
+  private platformSelect: PlatformSelect | null = null;
 
-  constructor(plugin: EasyBake, file: TFile) {
+  /**
+   * `selection` narrows the post to one Branch Writing card or branch. Omitted
+   * for the whole-file command, which behaves exactly as before.
+   */
+  constructor(
+    plugin: EasyBake,
+    file: TFile,
+    selection?: BranchWritingSelection
+  ) {
     super(plugin.app);
 
     const { contentEl } = this;
@@ -224,6 +290,24 @@ export class BakeModal extends Modal {
     this.contentEl
       .createEl('p', { text: 'Input file: ' })
       .createEl('strong', { text: file.path });
+
+    if (selection) {
+      this.contentEl
+        .createEl('p', { text: 'Publishing: ' })
+        .createEl('strong', { text: selection.label });
+
+      if (selection.archivedInSpan > 0) {
+        // Archived cards sitting between the first and last published card are
+        // inside the span and will go out with it. Say so rather than surprise.
+        const count = selection.archivedInSpan;
+        this.contentEl.createDiv({
+          cls: 'setting-item-description zettelcasting-archived-warning',
+          text: `Includes ${count} archived card${
+            count === 1 ? '' : 's'
+          } that fall inside this branch.`,
+        });
+      }
+    }
 
     new Setting(contentEl)
       .setName('Convert embedded markdown')
@@ -271,137 +355,101 @@ export class BakeModal extends Modal {
         })
       );
 
+    new Setting(contentEl)
+      .setName('Smart formatting')
+      .setDesc(
+        'Reflow the post into flowing paragraphs: folds the line breaks between cards and wrapped lines into running prose. Headings, lists, quotes and code blocks keep their own lines.'
+      )
+      .addToggle((toggle) =>
+        toggle.setValue(settings.smartFormatting).onChange((value) => {
+          settings.smartFormatting = value;
+          plugin.saveSettings();
+        })
+      );
+
+    /**
+     * Locate the selected card's span in the note as saved on disk. Resolved at
+     * publish time rather than when the modal opens so it reflects the freshest
+     * save. `undefined` means "whole file"; `null` means the store is ahead of
+     * the file and we must not guess.
+     */
+    const resolveRange = async (): Promise<
+      [number, number] | null | undefined
+    > => {
+      if (!selection) return undefined;
+      const text = await this.app.vault.cachedRead(file);
+      return findRangeInFile(text, selection.contents);
+    };
+
+    /**
+     * The exact text that gets posted: strip frontmatter and structure markers,
+     * then reflow if the user asked for it. Shared by the word count and the
+     * publish handler so the count always describes what actually goes out.
+     */
+    const buildPublishText = (
+      baked: string,
+      range: [number, number] | undefined,
+      contentRemoved = false
+    ) => {
+      const normalized = normalizeForPublishing(baked, {
+        // A card span starts below the frontmatter, so skip that offset.
+        frontmatterEndOffset: range
+          ? undefined
+          : frontmatterEndOffset(this.app, file),
+        contentRemoved,
+      });
+
+      return settings.smartFormatting ? smartFormat(normalized) : normalized;
+    };
+
     new Setting(contentEl).setName('Output file name').then((setting) => {
       new Setting(contentEl).then((setting) => {
         setting.addButton((btn) =>
           btn.setButtonText('Calculate word count').onClick(async () => {
-            const baked = await bake(this.app, file, null, new Set(), settings);
-            setting.descEl.setText(getWordCount(baked).toString());
+            const range = await resolveRange();
+            if (range === null) {
+              setting.descEl.setText('Card not found in the saved file yet.');
+              return;
+            }
+            const baked = await bake(
+              this.app,
+              file,
+              null,
+              new Set(),
+              settings,
+              new Set(),
+              range ?? undefined
+            );
+            setting.descEl.setText(
+              getWordCount(
+                buildPublishText(baked, range ?? undefined)
+              ).toString()
+            );
           })
         );
       });
 
-      // Declare variables before defining refreshPlatforms so the closure
-      // captures the bindings (assigned below before first call).
-      let platformDropdown!: DropdownComponent;
-      let platformStatusEl!: HTMLDivElement;
-
-      // Fetches the authenticated user's connected platforms and updates the dropdown.
-      const refreshPlatforms = async () => {
-        const apiKey = settings.zettelcasting_api_key;
-
-        if (!apiKey) {
-          platformStatusEl.setText(
-            'Enter an API key above to see your connected platforms.'
-          );
-          platformStatusEl.style.color = 'var(--text-muted)';
-          const sel = platformDropdown.selectEl;
-          while (sel.options.length > 0) sel.remove(0);
-          sel.add(new Option('No platforms available', ''));
-          platformDropdown.setDisabled(true);
-          return;
-        }
-
-        platformStatusEl.setText('Fetching platforms…');
-        platformStatusEl.style.color = 'var(--text-muted)';
-
-        try {
-          const resp = await fetch(`${apiBase(BACKEND_URL)}/api/integrations/pkm/platforms`, {
-            headers: { 'X-API-Key': apiKey },
-          });
-
-          if (!resp.ok) {
-            const isAuth = resp.status === 401 || resp.status === 403;
-            platformStatusEl.setText(
-              isAuth
-                ? 'Invalid API key — please check your key and try again.'
-                : `Server error (${resp.status}) — please try again later.`
-            );
-            platformStatusEl.style.color = 'var(--text-error)';
-            return;
-          }
-
-          const platforms = (await resp.json()) as PlatformWithConnectionDto[];
-          const connected = platforms.filter((p) => p.isConnected);
-
-          const sel = platformDropdown.selectEl;
-          while (sel.options.length > 0) sel.remove(0);
-
-          if (connected.length === 0) {
-            sel.add(new Option('No platforms connected — visit your dashboard', ''));
-            platformDropdown.setDisabled(true);
-            platformStatusEl.setText(
-              'No platforms connected. Connect platforms in your ZettelCasting dashboard.'
-            );
-            platformStatusEl.style.color = 'var(--text-error)';
-            return;
-          }
-
-          platformDropdown.setDisabled(false);
-          for (const p of connected) {
-            sel.add(new Option(p.name, p.key));
-          }
-
-          // Restore previously saved selection if still available
-          const hasMatch = connected.some((p) => p.key === settings.platform);
-          const targetValue = hasMatch ? settings.platform : connected[0].key;
-          sel.value = targetValue;
-          if (settings.platform !== targetValue) {
-            settings.platform = targetValue;
-            await plugin.saveSettings();
-          }
-
-          const count = connected.length;
-          platformStatusEl.setText(
-            `${count} platform${count === 1 ? '' : 's'} connected.`
-          );
-          platformStatusEl.style.color = 'var(--text-success)';
-        } catch {
-          platformStatusEl.setText(
-            'Could not reach the ZettelCasting server. Please try again later.'
-          );
-          platformStatusEl.style.color = 'var(--text-error)';
-        }
-      };
-
-      // --- API key input ---
-      new Setting(contentEl)
-        .setName('Zettelcasting API Key')
-        .addText((text) =>
-          text
-            .setPlaceholder('Enter your ZettelCasting API key')
-            .setValue(settings.zettelcasting_api_key)
-            .onChange(async (value) => {
-              settings.zettelcasting_api_key = value;
-              await plugin.saveSettings();
-              await refreshPlatforms();
-            })
-        );
-
-      // Status line (appears between API key and dropdown in the DOM)
-      platformStatusEl = contentEl.createDiv({
-        cls: 'setting-item-description zettelcasting-platform-status',
-        attr: { style: 'padding: 0 var(--size-4-3) var(--size-4-2);' },
-      });
-
-      new Setting(contentEl)
-        .setName('Publish to Platform')
-        .addDropdown((dropdown) => {
-          // Populated by refreshPlatforms() with the user's actually-connected
-          // platforms — no hardcoded options.
-          platformDropdown = dropdown;
-          dropdown.onChange(async (value) => {
-            settings.platform = value;
-            await plugin.saveSettings();
-          });
+      // The API key lives in the plugin's settings tab, not here — a post
+      // dialog is the wrong place to manage a credential. Point there when it
+      // is missing, so the empty platform list is self-explanatory.
+      if (!settings.zettelcasting_api_key) {
+        contentEl.createDiv({
+          cls: 'setting-item-description zettelcasting-platform-status is-error',
+          text: 'No API key set. Add one in Settings → Community plugins → ZettelCasting.',
         });
+      }
 
-      // Populate the dropdown on open from the saved key.
-      void refreshPlatforms();
+      this.platformSelect = createPlatformSelect(contentEl, plugin);
+      void this.platformSelect.refresh();
 
       this.modalEl.createDiv('modal-button-container', (el) => {
-        let outputName = file.basename + '.zcast.md';
-        let outputFolder = file.parent?.path || '';
+        // Section numbers are digits and dots, so they are already filename-safe.
+        let outputName = selection
+          ? `${file.basename} - ${selection.fileNameSuffix}.zcast.md`
+          : file.basename + '.zcast.md';
+        // The vault root's path is '/', which would build a '//name.md' path.
+        const parentPath = file.parent?.path ?? '';
+        let outputFolder = parentPath === '/' ? '' : parentPath;
 
         if (outputFolder) outputFolder += '/';
 
@@ -419,10 +467,34 @@ export class BakeModal extends Modal {
           if (outputName) {
             const { vault } = this.app;
 
-            let publishDate: Date = new Date();
-            picked_date.subscribe((val) => {
-              if (val !== null) publishDate = val;
-            });
+            if (!settings.zettelcasting_api_key) {
+              new Notice(
+                'Add your ZettelCasting API key in the plugin settings before scheduling.',
+                8000
+              );
+              enableBtn(btn);
+              return;
+            }
+
+            if (!settings.platform) {
+              new Notice('Select a platform to publish to.');
+              enableBtn(btn);
+              return;
+            }
+
+            // Read the store once; `subscribe` here would leak an unsubscriber
+            // on every click. Falls back to "now" when no date was picked.
+            const publishDate = get(picked_date) ?? new Date();
+
+            const range = await resolveRange();
+            if (range === null) {
+              new Notice(
+                'Could not find that card in the saved note. Give Branch Writing a moment to save, then try again.',
+                8000
+              );
+              enableBtn(btn);
+              return;
+            }
 
             const mediaFiles = new Set<TFile>();
             const baked = await bake(
@@ -431,7 +503,18 @@ export class BakeModal extends Modal {
               null,
               new Set(),
               settings,
-              mediaFiles
+              mediaFiles,
+              range ?? undefined
+            );
+
+            // Strip frontmatter and hierarchical-writing structure markers only
+            // now that baking is done — doing it earlier would shift the
+            // metadata-cache offsets bake() splices links and embeds at.
+            const publishText = buildPublishText(
+              baked,
+              range ?? undefined,
+              // Uploaded embeds were removed from the body, leaving a gap.
+              mediaFiles.size > 0
             );
 
             // Upload embedded images/videos first; abort the post if any fail
@@ -459,7 +542,7 @@ export class BakeModal extends Modal {
 
             try {
               await send_note(
-                baked,
+                publishText,
                 publishDate,
                 settings.platform,
                 settings.zettelcasting_api_key,
@@ -482,17 +565,37 @@ export class BakeModal extends Modal {
                 : 'Scheduled post.'
             );
 
-            const nextPath = outputFolder + outputName + '.md';
-            let existing = vault.getAbstractFileByPath(nextPath);
+            // `outputName` already carries the .md extension unless the user
+            // edited it away — Vault.create rejects extensionless paths.
+            const fileName = outputName.endsWith('.md')
+              ? outputName
+              : outputName + '.md';
+            const nextPath = outputFolder + fileName;
 
-            if (existing instanceof TFile) {
-              await vault.modify(existing, baked);
-            } else {
-              existing = await vault.create(nextPath, baked);
-            }
+            // The post is already scheduled at this point, so a local write
+            // failure must not be reported as a scheduling failure.
+            try {
+              let existing = vault.getAbstractFileByPath(nextPath);
 
-            if (existing instanceof TFile) {
-              this.app.workspace.getLeaf('tab').openFile(existing);
+              // Write the published text, not the raw bake: the sidecar is a
+              // record of what went out, and this keeps a source note's
+              // frontmatter from being inherited by the generated file.
+              if (existing instanceof TFile) {
+                await vault.modify(existing, publishText);
+              } else {
+                existing = await vault.create(nextPath, publishText);
+              }
+
+              if (existing instanceof TFile) {
+                await this.app.workspace.getLeaf('tab').openFile(existing);
+              }
+            } catch (err) {
+              new Notice(
+                `Post scheduled, but writing ${nextPath} failed: ${
+                  err instanceof Error ? err.message : 'unknown error'
+                }`,
+                8000
+              );
             }
           }
 
@@ -514,12 +617,18 @@ export class BakeModal extends Modal {
   }
 
   onOpen() {
+    // `picked_date` is a module-level store shared by every modal instance —
+    // reset it so a date picked in a previous session isn't reused silently.
+    picked_date.set(null);
     this.component = new Component({
       target: this.contentEl,
     });
   }
 
   onClose() {
+    this.platformSelect?.dispose();
+    this.platformSelect = null;
+    picked_date.set(null);
     this.component.$destroy();
     const { contentEl } = this;
     contentEl.empty();

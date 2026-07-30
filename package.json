@@ -6,6 +6,8 @@
 	"scripts": {
 		"dev": "node esbuild.config.mjs",
 		"build": "tsc -noEmit -skipLibCheck && node --trace-warnings esbuild.config.mjs production",
+		"test": "node esbuild.tests.mjs && node --test \".test-build/*.test.js\"",
+		"check": "tsc -noEmit -skipLibCheck && eslint ./src && npm test",
 		"lint": "eslint ./src",
 		"lint:fix": "eslint ./src/**/* --fix",
 		"prettier": "prettier --write \"./src/**/*.{ts,tsx}\"",
@@ -17,6 +19,12 @@
 	"keywords": [],
 	"author": "Dayne Daniell",
 	"license": "MIT",
+	"dependencies": {
+		"flatpickr": "^4.6.13",
+		"mdast-util-from-markdown": "^2.0.3",
+		"mdast-util-gfm": "^3.1.0",
+		"micromark-extension-gfm": "^3.0.0"
+	},
 	"devDependencies": {
 		"@trivago/prettier-plugin-sort-imports": "^4.3.0",
 		"@tsconfig/svelte": "^5.0.2",

@@ -6,6 +6,8 @@
     "module": "ESNext",
     "target": "ES6",
     "allowJs": true,
+    // The tests default-import Node built-ins; esbuild handles the interop.
+    "allowSyntheticDefaultImports": true,
     "noImplicitAny": true,
     "moduleResolution": "node",
     "importHelpers": true,
