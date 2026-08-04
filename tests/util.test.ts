@@ -43,6 +43,13 @@ describe('text helpers', () => {
     assert.equal(getWordCount('one %%hidden words%% two'), 2);
   });
 
+  it('counts words separated by line breaks and tabs', () => {
+    assert.equal(getWordCount('alpha beta\ngamma delta'), 4);
+    assert.equal(getWordCount('alpha\r\nbeta\tgamma'), 3);
+    // Punctuation-only tokens are not words.
+    assert.equal(getWordCount('alpha — beta'), 2);
+  });
+
   it('maps only supported media extensions', () => {
     assert.equal(mimeFromExtension('PNG'), 'image/png');
     assert.equal(mimeFromExtension('mp4'), 'video/mp4');

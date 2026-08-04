@@ -7,7 +7,10 @@ import {
   HeadingSubpathResult,
 } from 'obsidian';
 
-export const wordCountRE = /\P{Z}*[\p{L}\p{N}]\P{Z}*/gu;
+// `\S` rather than `\P{Z}`: the Unicode separator categories exclude newlines
+// and tabs (those are Cc), so `\P{Z}` would match across a line break and fuse
+// the last word of one line with the first of the next.
+export const wordCountRE = /\S*[\p{L}\p{N}]\S*/gu;
 export const commentRE = /(?:<!--[\s\S]*?-->|%%[\s\S]*?(?!%%)[\s\S]+?%%)/g;
 
 /**
