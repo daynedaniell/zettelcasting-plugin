@@ -4,6 +4,7 @@ import { describe, it } from 'node:test';
 
 import { bake } from '../src/BakeModal';
 import { BakeSettings } from '../src/main';
+import { normalizeForPublishing } from '../src/util';
 import { createSettings, createVault } from './helpers/vault';
 
 const CHILD = 'Child body.';
@@ -145,6 +146,26 @@ describe('bake — attachments', () => {
     assert.equal(media.size, 1);
   });
 
+  it('still collects media when file link conversion is off', async () => {
+    // `convertFileLinks` governs *unsupported* attachments only. Images and
+    // videos are matched earlier and uploaded either way, so turning it off
+    // must never cost a post its media.
+    const media = new Set<any>();
+    await bakeRoot(
+      {
+        'pic.png': '',
+        'clip.mp4': '',
+        'Root.md': '![[pic.png]]\n\n![[clip.mp4]]',
+      },
+      { media, settings: { convertFileLinks: false } }
+    );
+
+    assert.deepEqual(
+      [...media].map((f) => f.path).sort(),
+      ['clip.mp4', 'pic.png']
+    );
+  });
+
   it('converts an unsupported attachment to a file:// link', async () => {
     assert.equal(
       await bakeRoot({ 'doc.pdf': '', 'Root.md': '![[doc.pdf]]' }),
@@ -160,6 +181,44 @@ describe('bake — attachments', () => {
       ),
       '![[doc.pdf]]'
     );
+  });
+});
+
+describe('bake — the two outputs', () => {
+  // What the modal does for real: one bake, rendered twice. The post must carry
+  // its images and none of the author's local paths; the sidecar keeps both.
+  const files = {
+    'pic.png': '',
+    'doc.pdf': '',
+    'Root.md': 'Look:\n\n![[pic.png]]\n\nAnd:\n\n![[doc.pdf]]\n\nEnd.',
+  };
+
+  it('uploads the image and keeps local paths out of the post', async () => {
+    const media = new Set<any>();
+    const baked = await bakeRoot(files, { media });
+
+    // The image is uploaded and attached separately, never inlined as a path.
+    assert.deepEqual([...media].map((f) => f.path), ['pic.png']);
+
+    const published = normalizeForPublishing(baked, {
+      contentRemoved: media.size > 0,
+      stripLocalFileLinks: true,
+    });
+
+    assert.equal(published, 'Look:\n\nAnd:\n\nEnd.');
+    assert.ok(!published.includes('file://'));
+    assert.ok(!published.includes('doc.pdf'));
+  });
+
+  it('keeps the attachment link in the sidecar copy', async () => {
+    const media = new Set<any>();
+    const baked = await bakeRoot(files, { media });
+
+    const local = normalizeForPublishing(baked, {
+      contentRemoved: media.size > 0,
+    });
+
+    assert.ok(local.includes('![](file:///vault/doc.pdf)'));
   });
 });
 

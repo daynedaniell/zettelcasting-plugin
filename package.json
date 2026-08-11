@@ -18,7 +18,7 @@
 	},
 	"keywords": [],
 	"author": "Dayne Daniell",
-	"license": "MIT",
+	"license": "GPL-3.0-or-later",
 	"dependencies": {
 		"flatpickr": "^4.6.13",
 		"mdast-util-from-markdown": "^2.0.3",

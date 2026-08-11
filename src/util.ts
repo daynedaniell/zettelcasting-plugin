@@ -37,6 +37,78 @@ export function stripComments(text: string): string {
   return text.replace(commentRE, '');
 }
 
+/** The shape we need off an mdast node, without pulling in the full types. */
+interface PositionedNode {
+  type: string;
+  position?: { start: { offset?: number }; end: { offset?: number } };
+  children?: PositionedNode[];
+}
+
+/**
+ * Offsets of every code block and code span, in document order.
+ *
+ * Comment stripping has to skip these. `%%` is a comment marker in LaTeX and a
+ * literal in batch files, and `<!-- -->` is ordinary content in an HTML sample —
+ * so a regex sweep would treat the text *between* two of them as a comment and
+ * delete the code in the middle.
+ */
+function codeRanges(source: string): Array<[number, number]> {
+  let tree: PositionedNode;
+  try {
+    tree = fromMarkdown(source, {
+      extensions: [gfm()],
+      mdastExtensions: [gfmFromMarkdown()],
+    }) as PositionedNode;
+  } catch {
+    return [];
+  }
+
+  const ranges: Array<[number, number]> = [];
+
+  const visit = (node: PositionedNode) => {
+    if (node.type === 'code' || node.type === 'inlineCode') {
+      const from = node.position?.start.offset;
+      const to = node.position?.end.offset;
+      if (from !== undefined && to !== undefined) ranges.push([from, to]);
+      // Code has no children worth descending into.
+      return;
+    }
+    for (const child of node.children ?? []) visit(child);
+  };
+
+  visit(tree);
+  return ranges;
+}
+
+/**
+ * Strip Obsidian comments — `%%…%%` and `<!--…-->` — from everything except
+ * code blocks and code spans, which are published as written.
+ *
+ * A comment that *wraps* a code fence is left in place rather than removed:
+ * the opening and closing markers land in different segments, so they no longer
+ * pair up. That is the deliberate trade. Deleting a code block someone meant to
+ * publish is unrecoverable; leaving one comment visible is not.
+ */
+export function stripCommentsOutsideCode(text: string): string {
+  if (!text) return text;
+
+  const ranges = codeRanges(text);
+  if (ranges.length === 0) return stripComments(text);
+
+  let out = '';
+  let cursor = 0;
+
+  for (const [from, to] of ranges) {
+    // Defensive: a nested or out-of-order range would otherwise rewind us.
+    if (from < cursor) continue;
+    out += stripComments(text.slice(cursor, from));
+    out += text.slice(from, to);
+    cursor = to;
+  }
+
+  return out + stripComments(text.slice(cursor));
+}
+
 export function getWordCount(text: string): number {
   return (stripComments(text).match(wordCountRE) || []).length;
 }
@@ -117,8 +189,23 @@ const structureSpanMarkerRE =
   /<span\s+data-(?:bw-)?section="\d+(?:\.\d+)*"\s*(?:\/>|><\/span>)/g;
 
 /**
+ * A `file://` image written by `convertFileLinks`, e.g.
+ * `![](file:///Users/someone/vault/report.pdf)`.
+ *
+ * Matches the generated form rather than any URL: the path is `encodeURI`d, so
+ * it holds no whitespace and the link cannot span lines.
+ */
+const localFileLinkRE = /!\[[^\]\n]*\]\(file:\/\/[^)\s]*\)[ \t]*/g;
+
+/**
  * Final cleanup applied to baked output just before it is published or written
  * to the sidecar note.
+ *
+ * Removes frontmatter, hierarchical-writing structure markers, and Obsidian
+ * comments — both `%%…%%` and `<!--…-->`. Comments are private annotations that
+ * render as nothing in the vault, so publishing them verbatim leaks them to a
+ * public feed; `getWordCount` has always excluded them, so counting them out of
+ * the post but sending them anyway also made the reported length a lie.
  *
  * MUST run only after `bake()` has returned. Baking splices links and embeds at
  * metadata-cache offsets; removing characters any earlier shifts every remaining
@@ -137,6 +224,16 @@ export interface NormalizeOptions {
    * so the blank line they left behind gets tidied too.
    */
   contentRemoved?: boolean;
+  /**
+   * Drop the `file://` images `convertFileLinks` produced. Set for the text
+   * that goes to the backend and not for the sidecar note: the path resolves on
+   * this machine and nowhere else, so publishing it discloses the local
+   * username and folder layout while giving the post nothing.
+   *
+   * Removing these cannot cost a post its media — images and videos are
+   * uploaded and attached separately, and never take this form.
+   */
+  stripLocalFileLinks?: boolean;
 }
 
 export function normalizeForPublishing(
@@ -145,24 +242,43 @@ export function normalizeForPublishing(
 ): string {
   if (!text) return text;
 
-  const { frontmatterEndOffset, contentRemoved = false } = options;
+  const {
+    frontmatterEndOffset,
+    contentRemoved = false,
+    stripLocalFileLinks = false,
+  } = options;
 
   const withoutFrontmatter = stripFrontmatterAt(text, frontmatterEndOffset);
   const withoutMarkers = withoutFrontmatter
     .replace(structureCommentMarkerRE, '')
     .replace(structureSpanMarkerRE, '');
 
-  // Leave ordinary notes byte-identical.
-  if (withoutMarkers === text && !contentRemoved) return text;
+  // Safe to run at this point for the same reason the markers are: `bake()` has
+  // already returned, and no `file://` image can sit inside the frontmatter the
+  // offset above points past, because frontmatter links are cached separately
+  // and never spliced.
+  const withoutLocalFiles = stripLocalFileLinks
+    ? withoutMarkers.replace(localFileLinkRE, '')
+    : withoutMarkers;
 
-  // Removing a marker line or an embed leaves a gap. Only tidy when something
-  // was actually taken out, so deliberate spacing in plain notes survives.
+  // Comments are stripped after the structure markers, not before: those
+  // markers are themselves HTML comments, and their patterns consume the whole
+  // line. Stripping generic comments first would take the marker but leave its
+  // newline, turning one card boundary into a spurious paragraph break.
+  const withoutComments = stripCommentsOutsideCode(withoutLocalFiles);
+
+  // Leave ordinary notes byte-identical.
+  if (withoutComments === text && !contentRemoved) return text;
+
+  // Removing a marker line, a comment, a local file link or an embed leaves a
+  // gap. Only tidy when something was actually taken out, so deliberate spacing
+  // in plain notes survives.
   const removedSomething =
-    withoutMarkers !== withoutFrontmatter || contentRemoved;
+    withoutComments !== withoutFrontmatter || contentRemoved;
 
   const collapsed = removedSomething
-    ? withoutMarkers.replace(/\n{3,}/g, '\n\n')
-    : withoutMarkers;
+    ? withoutComments.replace(/\n{3,}/g, '\n\n')
+    : withoutComments;
 
   return collapsed.trim();
 }

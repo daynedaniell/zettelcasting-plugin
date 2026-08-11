@@ -2,8 +2,8 @@
 	"id": "zettelcasting",
 	"name": "ZettelCasting",
 	"version": "1.0.0",
-	"minAppVersion": "0.15.0",
-	"description": "Use AI to combine and publish your atomic notes to social platforms with the ZettelCastings service.",
+	"minAppVersion": "1.4.0",
+	"description": "Publish and schedule whole notes or single sections from your vault to your connected social platforms via the ZettelCasting service.",
 	"author": "Dayne Daniell",
 	"authorUrl": "https://zettelcasting.com",
 	"isDesktopOnly": true

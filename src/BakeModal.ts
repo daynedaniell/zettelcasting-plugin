@@ -346,7 +346,7 @@ export class BakeModal extends Modal {
     new Setting(contentEl)
       .setName('Convert file links')
       .setDesc(
-        'Convert links to ![[non-markdown files.png]] to ![](file:///full/path/to/non-markdown%20files.png)'
+        'Rewrite links to non-markdown files, a PDF say, as ![](file:///full/path/to/report.pdf) in the local copy saved to your vault. These links never go out with the post — the path resolves on this machine only. Images and videos are uploaded and attached to the post instead, so they are unaffected.'
       )
       .addToggle((toggle) =>
         toggle.setValue(settings.convertFileLinks).onChange((value) => {
@@ -382,14 +382,28 @@ export class BakeModal extends Modal {
     };
 
     /**
-     * The exact text that gets posted: strip frontmatter and structure markers,
-     * then reflow if the user asked for it. Shared by the word count and the
-     * publish handler so the count always describes what actually goes out.
+     * Render the baked text for one of its two destinations: strip frontmatter,
+     * structure markers and comments, then reflow if the user asked for it.
+     *
+     * The two differ in one respect. `convertFileLinks` rewrites an attachment
+     * as `![](file:///…)`, which resolves on this machine only — useful in the
+     * sidecar note, which stays in the vault, and a disclosure of the local
+     * username and folder layout in a post, which does not. So the published
+     * text drops those links and the sidecar keeps them.
+     *
+     * Embedded images and videos are unaffected either way: they are uploaded
+     * and attached to the post separately, and never take the `file://` form.
+     *
+     * The word count uses the published text, so it keeps describing what
+     * actually goes out.
      */
-    const buildPublishText = (
+    const buildText = (
       baked: string,
       range: [number, number] | undefined,
-      contentRemoved = false
+      { forPublishing, contentRemoved = false }: {
+        forPublishing: boolean;
+        contentRemoved?: boolean;
+      }
     ) => {
       const normalized = normalizeForPublishing(baked, {
         // A card span starts below the frontmatter, so skip that offset.
@@ -397,6 +411,7 @@ export class BakeModal extends Modal {
           ? undefined
           : frontmatterEndOffset(this.app, file),
         contentRemoved,
+        stripLocalFileLinks: forPublishing,
       });
 
       return settings.smartFormatting ? smartFormat(normalized) : normalized;
@@ -422,7 +437,7 @@ export class BakeModal extends Modal {
             );
             setting.descEl.setText(
               getWordCount(
-                buildPublishText(baked, range ?? undefined)
+                buildText(baked, range ?? undefined, { forPublishing: true })
               ).toString()
             );
           })
@@ -510,12 +525,19 @@ export class BakeModal extends Modal {
             // Strip frontmatter and hierarchical-writing structure markers only
             // now that baking is done — doing it earlier would shift the
             // metadata-cache offsets bake() splices links and embeds at.
-            const publishText = buildPublishText(
-              baked,
-              range ?? undefined,
-              // Uploaded embeds were removed from the body, leaving a gap.
-              mediaFiles.size > 0
-            );
+            //
+            // Uploaded embeds were removed from the body, leaving a gap.
+            const contentRemoved = mediaFiles.size > 0;
+            const publishText = buildText(baked, range ?? undefined, {
+              forPublishing: true,
+              contentRemoved,
+            });
+            // The vault copy keeps the `file://` attachment links the post
+            // drops: they resolve here, which is the whole point of a sidecar.
+            const localText = buildText(baked, range ?? undefined, {
+              forPublishing: false,
+              contentRemoved,
+            });
 
             // Upload embedded images/videos first; abort the post if any fail
             // so we never schedule a post that's missing its media.
@@ -577,13 +599,15 @@ export class BakeModal extends Modal {
             try {
               let existing = vault.getAbstractFileByPath(nextPath);
 
-              // Write the published text, not the raw bake: the sidecar is a
+              // Write the normalized text, not the raw bake: the sidecar is a
               // record of what went out, and this keeps a source note's
-              // frontmatter from being inherited by the generated file.
+              // frontmatter from being inherited by the generated file. It
+              // differs from the posted text only in keeping the `file://`
+              // attachment links, which resolve in the vault but not off it.
               if (existing instanceof TFile) {
-                await vault.modify(existing, publishText);
+                await vault.modify(existing, localText);
               } else {
-                existing = await vault.create(nextPath, publishText);
+                existing = await vault.create(nextPath, localText);
               }
 
               if (existing instanceof TFile) {

@@ -16,11 +16,14 @@ export interface BakeSettings {
   zettelcasting_api_key: string;
 }
 
-const DEFAULT_SETTINGS: BakeSettings = {
+export const DEFAULT_SETTINGS: BakeSettings = {
   bakeLinks: true,
   bakeEmbeds: true,
   bakeInList: true,
-  convertFileLinks: true,
+  // Opt-in: affects only the sidecar note saved to the vault, since the
+  // published text strips these links either way. Inherited from Easy Bake,
+  // where the output stayed on disk and a file:// link actually resolved.
+  convertFileLinks: false,
   // Opt-in: it rewrites the body, so existing setups keep their output.
   smartFormatting: false,
   platform: '',

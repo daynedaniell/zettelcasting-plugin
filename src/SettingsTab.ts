@@ -92,7 +92,7 @@ export class ZettelCastingSettingTab extends PluginSettingTab {
 
     this.addToggle(
       'Convert file links',
-      'Convert links to ![[non-markdown files.png]] to ![](file:///full/path/to/non-markdown%20files.png)',
+      'Rewrite links to non-markdown files, a PDF say, as ![](file:///full/path/to/report.pdf) in the local copy saved to your vault. These links never go out with the post — the path resolves on this machine only. Images and videos are uploaded and attached to the post instead, so they are unaffected.',
       'convertFileLinks'
     );
 
