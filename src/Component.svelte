@@ -2,65 +2,44 @@
 	import Flatpickr from "./Flatpickr.svelte";
 	import { createEventDispatcher } from "svelte";
 
-	import type EasyBake from "./main";
-
 	import { picked_date } from "./date.store";
-
-	let plugin: EasyBake;
 
 	const dispatch = createEventDispatcher();
 
 	export let value: undefined = undefined,
-		formattedValue: any,
+		formattedValue: any = "",
 		flatpickr: Flatpickr;
 
 	let mode = "single";
 
+	// Default to "now" so the picker shows the same time the post will actually
+	// be scheduled for when the user doesn't touch it, and disallow past dates.
+	const now = new Date();
+
 	let options;
 	$: options = {
 		mode,
-		defaultDate:
-			mode === "single" ? "2024-01-01" : ["2024-04-01", "2024-04-04"],
+		defaultDate: now,
+		minDate: now,
 		enableTime: true,
 		minuteIncrement: 1,
-		onChange(selectedDates: any, dateStr: string) {
-			picked_date.set(selectedDates[0]);
-			console.log("flatpickr hook", selectedDates, dateStr);
-		},
-		onOpen() {
-			console.log("opened");
+		onChange(selectedDates: any) {
+			picked_date.set(selectedDates[0] ?? null);
 		},
 	};
 
 	function handleOpen(event: Event) {
 		event.preventDefault();
 
-		if (flatpickr) {
-			flatpickr.open();
-			flatpickr.calendarContainer.focus();
-		}
+		// flatpickr moves focus into the calendar itself on open; calling
+		// focus() on calendarContainer is a no-op (it has no tabindex).
+		flatpickr?.open();
 	}
 
 	function handleChange(event: any) {
 		const [selectedDates, dateStr] = event.detail;
-		console.log({ selectedDates, dateStr });
 		dispatch("dateChange", { selectedDates, dateStr });
 	}
-
-	function handleClear() {
-		if (flatpickr) {
-			flatpickr.clear();
-		}
-	}
-
-	function handleSubmit(event: SubmitEvent) {
-		console.log(
-			"coming from the component itself on handleSubmit",
-			(event.target as HTMLFormElement).elements["date"].value,
-		);
-	}
-
-	export let variable: number;
 </script>
 
 <Flatpickr
@@ -70,9 +49,6 @@
 	on:change={handleChange}
 	name="date"
 	bind:flatpickr
-	on:close={() => {
-		console.log("closed");
-	}}
 	dateFormat="Y-m-d"
 />
 <button type="button" on:click={handleOpen}> Open picker </button>

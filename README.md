@@ -1,96 +1,160 @@
-# Obsidian Sample Plugin
+# ZettelCasting
 
-This is a sample plugin for Obsidian (https://obsidian.md).
+Turn the notes you already write into scheduled social posts, without leaving Obsidian.
 
-This project uses Typescript to provide type checking and documentation.
-The repo depends on the latest plugin API (obsidian.d.ts) in Typescript Definition format, which contains TSDoc comments describing what it does.
+ZettelCasting assembles a note — following its links and embeds so the finished post is
+self-contained — and schedules it to the social platforms you have connected to your
+[ZettelCasting](https://zettelcasting.com) account. A copy of exactly what was sent is saved
+back into your vault next to the source note.
 
-**Note:** The Obsidian API is still in early alpha and is subject to change at any time!
+## What it does
 
-This sample plugin demonstrates some of the basic functionality the plugin API can do.
-- Adds a ribbon icon, which shows a Notice when clicked.
-- Adds a command "Open Sample Modal" which opens a Modal.
-- Adds a plugin setting tab to the settings page.
-- Registers a global click event and output 'click' to the console.
-- Registers a global interval which logs 'setInterval' to the console.
+- **Assembles the post from your note.** Links and embeds that sit on their own line are
+  replaced inline with the content of the note they point to, recursively. A note that reads as
+  a hub of `[[atomic notes]]` goes out as one continuous post rather than as a list of dead
+  wikilinks.
+- **Uploads embedded media.** Embedded images and videos (`png`, `jpg`, `jpeg`, `gif`, `webp`,
+  `mp4`, `mov`, `webm`) are uploaded and attached to the post, and removed from the post body.
+  If an upload fails, nothing is scheduled — you never get a post missing its image.
+- **Reflows for social, optionally.** *Smart formatting* folds the hard line breaks that make
+  sense in a vault but read badly in a feed, turning wrapped lines and stacked short paragraphs
+  into running prose. Headings, lists, quotes and code blocks keep their own lines.
+- **Schedules rather than fires.** Pick a date and time; the post is queued with ZettelCasting
+  for that moment. Leaving the picker alone schedules it for now.
+- **Leaves a record.** After scheduling, the post is written to `<note name>.zcast.md` beside
+  the source note and opened in a new tab. It matches what went out, except that it keeps
+  `file://` links to local attachments — those resolve in your vault, so they belong in the
+  copy that stays there and never in the one that leaves.
 
-## First time developing plugins?
+## Requirements
 
-Quick starting guide for new plugin devs:
+- A [ZettelCasting](https://zettelcasting.com) account with at least one social platform
+  connected in your dashboard.
+- Obsidian 1.4.0 or later, on desktop. The plugin is desktop-only because converting links to
+  non-Markdown files needs filesystem paths.
 
-- Check if [someone already developed a plugin for what you want](https://obsidian.md/plugins)! There might be an existing plugin similar enough that you can partner up with.
-- Make a copy of this repo as a template with the "Use this template" button (login to GitHub if you don't see it).
-- Clone your repo to a local development folder. For convenience, you can place this folder in your `.obsidian/plugins/your-plugin-name` folder.
-- Install NodeJS, then run `npm i` in the command line under your repo folder.
-- Run `npm run dev` to compile your plugin from `main.ts` to `main.js`.
-- Make changes to `main.ts` (or create new `.ts` files). Those changes should be automatically compiled into `main.js`.
-- Reload Obsidian to load the new version of your plugin.
-- Enable plugin in settings window.
-- For updates to the Obsidian API run `npm update` in the command line under your repo folder.
+## Installation
 
-## Releasing new releases
+### From the community plugins list
 
-- Update your `manifest.json` with your new version number, such as `1.0.1`, and the minimum Obsidian version required for your latest release.
-- Update your `versions.json` file with `"new-plugin-version": "minimum-obsidian-version"` so older versions of Obsidian can download an older version of your plugin that's compatible.
-- Create new GitHub release using your new version number as the "Tag version". Use the exact version number, don't include a prefix `v`. See here for an example: https://github.com/obsidianmd/obsidian-sample-plugin/releases
-- Upload the files `manifest.json`, `main.js`, `styles.css` as binary attachments. Note: The manifest.json file must be in two places, first the root path of your repository and also in the release.
-- Publish the release.
+Settings → Community plugins → Browse → search for **ZettelCasting** → Install → Enable.
 
-> You can simplify the version bump process by running `npm version patch`, `npm version minor` or `npm version major` after updating `minAppVersion` manually in `manifest.json`.
-> The command will bump version in `manifest.json` and `package.json`, and add the entry for the new version to `versions.json`
+### Manually
 
-## Adding your plugin to the community plugin list
+1. Download `main.js`, `manifest.json` and `styles.css` from the
+   [latest release](https://github.com/daynedaniell/zettelcasting-plugin/releases).
+2. Put them in `<your vault>/.obsidian/plugins/zettelcasting/`.
+3. Reload Obsidian and enable the plugin under Settings → Community plugins.
 
-- Check https://github.com/obsidianmd/obsidian-releases/blob/master/plugin-review.md
-- Publish an initial version.
-- Make sure you have a `README.md` file in the root of your repo.
-- Make a pull request at https://github.com/obsidianmd/obsidian-releases to add your plugin.
+## Setup
 
-## How to use
+1. Open Settings → Community plugins → **ZettelCasting**.
+2. Paste your **ZettelCasting API key**. You will find it in your dashboard at
+   [zettelcasting.com](https://zettelcasting.com).
+3. The **Default platform** dropdown fills itself with the platforms your account has actually
+   connected. If it stays empty, connect a platform in the dashboard and reopen the settings tab.
 
-- Clone this repo.
-- Make sure your NodeJS is at least v16 (`node --version`).
-- `npm i` or `yarn` to install dependencies.
-- `npm run dev` to start compilation in watch mode.
+The key is stored in this plugin's settings file in your vault and is sent only to
+`zettelcasting.com`.
 
-## Manually installing the plugin
+## Usage
 
-- Copy over `main.js`, `styles.css`, `manifest.json` to your vault `VaultFolder/.obsidian/plugins/your-plugin-id/`.
+Open the command palette and run **Send to ZettelCasting - current file** to publish the
+active note.
 
-## Improve code quality with eslint (optional)
-- [ESLint](https://eslint.org/) is a tool that analyzes your code to quickly find problems. You can run ESLint against your plugin to find common bugs and ways to improve your code. 
-- To use eslint with this project, make sure to install eslint from terminal:
-  - `npm install -g eslint`
-- To use eslint to analyze this project use this command:
-  - `eslint main.ts`
-  - eslint will then create a report with suggestions for code improvement by file and line number.
-- If your source code is in a folder, such as `src`, you can use eslint with this command to analyze all files in that folder:
-  - `eslint .\src\`
+That opens the **Schedule post** dialog, where you can:
 
-## Funding URL
+- Toggle the assembly options for this post (the toggles double as your saved defaults).
+- Press **Calculate word count** to see the length of the text that will actually be sent,
+  after assembly and formatting.
+- Pick the date and time to publish.
+- Choose which connected platform to publish to.
+- Edit the filename of the local copy that gets written.
 
-You can include funding URLs where people who use your plugin can financially support it.
+Press **Schedule Post** to send it.
 
-The simple way is to set the `fundingUrl` field to your link in your `manifest.json` file:
+### Branch Writing
 
-```json
-{
-    "fundingUrl": "https://buymeacoffee.com"
-}
+The ZettelCasting plugin fully supports Santi Younger's
+[Branch Writing](https://platform.santiyounger.com/branch-writing) plugin for Obsidian. When a
+Branch Writing view is focused with a card selected, two more commands become available:
+
+| Command | Publishes |
+| ------- | --------- |
+| **Send to ZettelCasting - active card** | The selected card on its own |
+| **Send to ZettelCasting - active branch** | The selected card and everything beneath it |
+
+Both stay hidden otherwise, so they never clutter the command palette. They open the same
+**Schedule post** dialog as the whole-note command.
+
+The author of this plugin is not affiliated with Santi Younger or with the Branch Writing
+plugin.
+
+## Settings
+
+Everything under *Baking defaults* is the starting state of the dialog; changing a toggle in
+either place updates the other.
+
+| Setting | What it does |
+| ------- | ------------ |
+| **Convert embedded markdown** | Inline the content of `![[embedded markdown files]]` that sit on their own line. |
+| **Convert links** | Inline the content of `[[any link]]` that sits on its own line. |
+| **Convert links and embeds in lists** | Do the same when the link takes up an entire list bullet, preserving indentation. |
+| **Convert file links** | Rewrite links to non-Markdown files as `![](file:///full/path/…)` **in the local copy only**. These links never go out with the post. Off by default. |
+| **Smart formatting** | Reflow the post into flowing paragraphs. Off by default, since it rewrites the body. |
+
+Inline links — links with text around them on the same line — are always left as plain text
+rather than inlined, and a note never inlines itself or an ancestor, so cycles are safe.
+
+Frontmatter and comments are stripped from everything before it goes out. Both `%%Obsidian
+comments%%` and `<!-- HTML comments -->` are private annotations that render as nothing in your
+vault, so they are removed rather than published — except inside code blocks and code spans,
+which are published exactly as written.
+
+## Network use
+
+The plugin talks to `https://zettelcasting.com` and nowhere else. It makes three kinds of
+request, all authenticated with your API key:
+
+- `GET /api/integrations/pkm/platforms` — to list the platforms your account has connected.
+  Sent when the settings tab or the publish dialog opens.
+- `POST /api/integrations/pkm/media` — uploads an embedded image or video, when the note you
+  are publishing contains one.
+- `POST /api/integrations/pkm/posts` — schedules the post. Sends the assembled post body, the
+  target platform, the scheduled time and the URLs of any uploaded media.
+
+Nothing is sent until you run one of the commands, apart from the platform lookup that
+populates the dropdown.
+
+## Development
+
+```bash
+npm install
+npm run dev      # watch build into main.js
+npm run build    # type-check and produce a production main.js
+npm test         # run the test suite
+npm run check    # type-check, lint and test
 ```
 
-If you have multiple URLs, you can also do:
+The plugin entry point is [`src/main.ts`](src/main.ts). Note assembly lives in
+[`src/BakeModal.ts`](src/BakeModal.ts) and [`src/util.ts`](src/util.ts); the Branch Writing
+integration is isolated in [`src/branch-writing.ts`](src/branch-writing.ts).
 
-```json
-{
-    "fundingUrl": {
-        "Buy Me a Coffee": "https://buymeacoffee.com",
-        "GitHub Sponsor": "https://github.com/sponsors",
-        "Patreon": "https://www.patreon.com/"
-    }
-}
-```
+## Credits
 
-## API Documentation
+The note assembly logic (`bake()` and most of `src/util.ts`) is derived from
+[Easy Bake](https://github.com/mgmeyers/obsidian-easy-bake) by Matthew Meyers, used and
+redistributed under the GPL-3.0.
 
-See https://github.com/obsidianmd/obsidian-api
+## License
+
+[GPL-3.0-or-later](LICENSE).
+
+    Copyright (C) Matthew Meyers — original Easy Bake source
+    Copyright (C) 2026 Dayne Daniell — ZettelCasting modifications
+
+This program is free software: you can redistribute it and/or modify it under the terms of the
+GNU General Public License as published by the Free Software Foundation, either version 3 of
+the License, or (at your option) any later version. It is distributed in the hope that it will
+be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+FITNESS FOR A PARTICULAR PURPOSE. See the [LICENSE](LICENSE) file for details.

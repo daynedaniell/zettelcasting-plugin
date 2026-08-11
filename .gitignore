@@ -15,6 +15,9 @@ main.js
 # Exclude sourcemaps
 *.map
 
+# Compiled test bundles
+.test-build
+
 # obsidian
 data.json
 
