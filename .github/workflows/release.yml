@@ -9,6 +9,13 @@ jobs:
   build:
     runs-on: ubuntu-latest
 
+    # The repository default is a read-only GITHUB_TOKEN, which makes
+    # `gh release create` fail with "HTTP 403: Resource not accessible by
+    # integration". Grant the one scope this job needs rather than relying on a
+    # repository setting that is invisible from here.
+    permissions:
+      contents: write
+
     steps:
       - uses: actions/checkout@v3
 
