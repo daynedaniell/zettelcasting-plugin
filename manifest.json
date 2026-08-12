@@ -3,7 +3,7 @@
 	"name": "ZettelCasting",
 	"version": "1.0.0",
 	"minAppVersion": "1.4.0",
-	"description": "Publish and schedule whole notes or single sections from your vault to your connected social platforms via the ZettelCasting service.",
+	"description": "Publish and schedule notes from your vault to your connected social platforms via the ZettelCasting service. Linked and embedded notes are pulled in, so the post stands on its own.",
 	"author": "Dayne Daniell",
 	"authorUrl": "https://zettelcasting.com",
 	"isDesktopOnly": true
