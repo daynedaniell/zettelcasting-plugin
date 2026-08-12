@@ -1,5 +1,5 @@
 {
-	"name": "obsidian-zettelcastings",
+	"name": "zettelcasting",
 	"version": "1.0.0",
 	"description": "publish your atomic notes to social platforms with the ZettelCastings service.",
 	"main": "main.js",
