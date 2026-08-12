@@ -1,7 +1,7 @@
 {
 	"id": "zettelcasting",
 	"name": "ZettelCasting",
-	"version": "1.0.1",
+	"version": "1.0.0",
 	"minAppVersion": "1.4.0",
 	"description": "Publish and schedule whole notes or single sections from your vault to your connected social platforms via the ZettelCasting service.",
 	"author": "Dayne Daniell",
