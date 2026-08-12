@@ -34,7 +34,11 @@ export default class EasyBake extends Plugin {
   settings: BakeSettings;
 
   async loadSettings() {
-    this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+    // `loadData` is typed `any`; name the shape we expect at the boundary so
+    // nothing downstream inherits it. Anything unrecognised in data.json is
+    // simply carried through, as before.
+    const stored = (await this.loadData()) as Partial<BakeSettings> | null;
+    this.settings = Object.assign({}, DEFAULT_SETTINGS, stored ?? {});
   }
 
   async saveSettings() {
@@ -57,9 +61,11 @@ export default class EasyBake extends Plugin {
 
     this.addSettingTab(new ZettelCastingSettingTab(this.app, this));
 
+    // Command IDs and names carry no plugin prefix: Obsidian namespaces the ID
+    // by plugin already, and shows the plugin name beside every command.
     this.addCommand({
-      id: 'send-to-zettelcasting-file',
-      name: 'Send to ZettelCasting - current file',
+      id: 'schedule-post-current-file',
+      name: 'Schedule post from current file',
       checkCallback: (checking) => {
         const file = this.activeMarkdownFile;
         if (checking || !file) return !!file;
@@ -68,14 +74,14 @@ export default class EasyBake extends Plugin {
     });
 
     this.addBranchWritingCommand(
-      'send-to-zettelcasting-card',
-      'Send to ZettelCasting - active card',
+      'schedule-post-active-card',
+      'Schedule post from active Branch Writing card',
       'card'
     );
 
     this.addBranchWritingCommand(
-      'send-to-zettelcasting-branch',
-      'Send to ZettelCasting - active branch',
+      'schedule-post-active-branch',
+      'Schedule post from active Branch Writing branch',
       'branch'
     );
   }

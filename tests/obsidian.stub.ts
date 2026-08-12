@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 
 /**
  * Stand-in for the `obsidian` module, which only exists inside the app.
@@ -7,6 +6,30 @@
  * `parseLinktext` and `resolveSubpath` are real implementations, because the
  * baking logic depends on their exact semantics.
  */
+
+export interface StubRequestUrlParam {
+  url: string;
+  method?: string;
+  contentType?: string;
+  body?: string | ArrayBuffer;
+  headers?: Record<string, string>;
+  throw?: boolean;
+}
+
+/**
+ * Swappable implementation behind the `requestUrl` export. Tests assign
+ * `requestUrlStub.impl` to feed canned responses; the indirection exists
+ * because an imported binding can't be reassigned from outside the module.
+ */
+export const requestUrlStub = {
+  impl: (param: StubRequestUrlParam): unknown => {
+    throw new Error(`Unstubbed requestUrl call to ${param.url}`);
+  },
+};
+
+export function requestUrl(param: StubRequestUrlParam): Promise<unknown> {
+  return Promise.resolve(requestUrlStub.impl(param));
+}
 
 export class Modal {
   app: any;

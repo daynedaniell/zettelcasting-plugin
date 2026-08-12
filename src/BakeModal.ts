@@ -7,10 +7,16 @@ import {
   Setting,
   TFile,
   parseLinktext,
+  requestUrl,
   resolveSubpath,
 } from 'obsidian';
 
-import { BACKEND_URL, apiBase } from './api';
+import {
+  BACKEND_URL,
+  apiBase,
+  multipartBoundary,
+  multipartFileBody,
+} from './api';
 import EasyBake, { BakeSettings } from './main';
 import { PlatformSelect, createPlatformSelect } from './platform-select';
 import {
@@ -197,21 +203,33 @@ async function uploadMedia(
   const bytes = await app.vault.readBinary(file);
   const mime = mimeFromExtension(file.extension) ?? 'application/octet-stream';
 
-  const form = new FormData();
-  // Don't set Content-Type manually — the runtime adds the multipart boundary.
-  form.append('file', new Blob([bytes], { type: mime }), file.name);
-
-  const resp = await fetch(`${apiBase(backendUrl)}/api/integrations/pkm/media`, {
+  // `requestUrl` has no FormData support, so the multipart envelope is built
+  // by hand. The body is identical to the one FormData produced, so the
+  // endpoint sees no change. The boundary goes in `contentType`, never in
+  // `headers` — setting both sends two Content-Type headers.
+  const boundary = multipartBoundary();
+  const resp = await requestUrl({
+    url: `${apiBase(backendUrl)}/api/integrations/pkm/media`,
     method: 'POST',
+    contentType: `multipart/form-data; boundary=${boundary}`,
     headers: { 'X-API-Key': apiKey },
-    body: form,
+    body: multipartFileBody('file', file.name, mime, bytes, boundary),
+    throw: false,
   });
 
-  if (!resp.ok) {
+  if (resp.status < 200 || resp.status >= 300) {
     throw new Error(`Upload failed (${resp.status}) for ${file.name}`);
   }
 
-  const { url } = (await resp.json()) as { url?: unknown };
+  let payload: { url?: unknown };
+  try {
+    // A getter that parses on access, so a non-JSON body throws right here.
+    payload = resp.json as { url?: unknown };
+  } catch {
+    throw new Error(`Upload returned an unreadable response for ${file.name}`);
+  }
+
+  const { url } = payload;
 
   // Guard the shape: a missing url would otherwise be posted as `null` in the
   // media array and the post would silently lose its image.
@@ -230,11 +248,15 @@ async function send_note(
   backendUrl: string,
   media: string[]
 ) {
-  const response = await fetch(`${apiBase(backendUrl)}/api/integrations/pkm/posts`, {
+  // `requestUrl` rather than `fetch`: it goes out through Obsidian rather than
+  // the renderer, so the request is not subject to CORS. `throw: false` keeps
+  // the status check below as the single place a failure is turned into a
+  // message.
+  const response = await requestUrl({
+    url: `${apiBase(backendUrl)}/api/integrations/pkm/posts`,
     method: 'POST',
-    mode: 'cors',
+    contentType: 'application/json',
     headers: {
-      'Content-Type': 'application/json',
       'X-API-Key': `${zettelcasting_api_key}`,
     },
     body: JSON.stringify({
@@ -244,9 +266,10 @@ async function send_note(
       media: media,
       tags: ['scheduled'],
     }),
+    throw: false,
   });
 
-  if (!response.ok) {
+  if (response.status < 200 || response.status >= 300) {
     throw new Error(`Failed to schedule post (${response.status})`);
   }
 }
@@ -286,7 +309,12 @@ export class BakeModal extends Modal {
     const { settings } = plugin;
 
     this.titleEl.setText('Schedule post with ZettelCasting');
-    this.modalEl.addClass('mod-narrow', 'easy-bake-modal');
+    // Deliberately not `mod-narrow`: on desktop it only caps the width at
+    // 800px, which never binds against the 560px a dialog already is, and it
+    // is a hook themes hang their own modal rules on — Blue Topaz uses it to
+    // set `overflow: hidden` on the content, which trapped everything below
+    // the fold. The width and the scrolling are set in styles.css instead.
+    this.modalEl.addClass('easy-bake-modal');
     this.contentEl
       .createEl('p', { text: 'Input file: ' })
       .createEl('strong', { text: file.path });
@@ -310,14 +338,14 @@ export class BakeModal extends Modal {
     }
 
     new Setting(contentEl)
-      .setName('Convert embedded markdown')
+      .setName('Convert embedded Markdown')
       .setDesc(
-        'Include the content of ![[embedded markdown files]] when the link is on its own line.'
+        'Include the content of ![[embedded Markdown files]] when the link is on its own line.'
       )
       .addToggle((toggle) =>
-        toggle.setValue(settings.bakeEmbeds).onChange((value) => {
+        toggle.setValue(settings.bakeEmbeds).onChange(async (value) => {
           settings.bakeEmbeds = value;
-          plugin.saveSettings();
+          await plugin.saveSettings();
         })
       );
 
@@ -325,33 +353,33 @@ export class BakeModal extends Modal {
       .setName('Convert links')
       .setDesc('Include the content of [[any link]] when it is on its own line.')
       .addToggle((toggle) =>
-        toggle.setValue(settings.bakeLinks).onChange((value) => {
+        toggle.setValue(settings.bakeLinks).onChange(async (value) => {
           settings.bakeLinks = value;
-          plugin.saveSettings();
+          await plugin.saveSettings();
         })
       );
 
     new Setting(contentEl)
       .setName('Convert links and embeds in lists')
       .setDesc(
-        'Include the content of [[any link]] or ![[embedded markdown file]] when it takes up an entire list bullet.'
+        'Include the content of [[any link]] or ![[embedded Markdown file]] when it takes up an entire list bullet.'
       )
       .addToggle((toggle) =>
-        toggle.setValue(settings.bakeInList).onChange((value) => {
+        toggle.setValue(settings.bakeInList).onChange(async (value) => {
           settings.bakeInList = value;
-          plugin.saveSettings();
+          await plugin.saveSettings();
         })
       );
 
     new Setting(contentEl)
       .setName('Convert file links')
       .setDesc(
-        'Rewrite links to non-markdown files, a PDF say, as ![](file:///full/path/to/report.pdf) in the local copy saved to your vault. These links never go out with the post — the path resolves on this machine only. Images and videos are uploaded and attached to the post instead, so they are unaffected.'
+        'Rewrite links to non-Markdown files, a PDF say, as ![](file:///full/path/to/report.pdf) in the local copy saved to your vault. These links never go out with the post — the path resolves on this machine only. Images and videos are uploaded and attached to the post instead, so they are unaffected.'
       )
       .addToggle((toggle) =>
-        toggle.setValue(settings.convertFileLinks).onChange((value) => {
+        toggle.setValue(settings.convertFileLinks).onChange(async (value) => {
           settings.convertFileLinks = value;
-          plugin.saveSettings();
+          await plugin.saveSettings();
         })
       );
 
@@ -361,9 +389,9 @@ export class BakeModal extends Modal {
         'Reflow the post into flowing paragraphs: folds the line breaks between cards and wrapped lines into running prose. Headings, lists, quotes and code blocks keep their own lines.'
       )
       .addToggle((toggle) =>
-        toggle.setValue(settings.smartFormatting).onChange((value) => {
+        toggle.setValue(settings.smartFormatting).onChange(async (value) => {
           settings.smartFormatting = value;
-          plugin.saveSettings();
+          await plugin.saveSettings();
         })
       );
 
@@ -470,14 +498,16 @@ export class BakeModal extends Modal {
 
         const btn = el.createEl('button', {
           cls: 'mod-cta',
-          text: 'Schedule Post',
+          text: 'Schedule post',
         });
 
-        activeWindow.setTimeout(() => {
+        // The modal's own window, so focus still lands when it is showing in a
+        // popped-out window.
+        this.modalEl.win.setTimeout(() => {
           btn.focus();
         });
 
-        btn.addEventListener('click', async () => {
+        const submitPost = async () => {
           disableBtn(btn);
           if (outputName) {
             const { vault } = this.app;
@@ -624,6 +654,13 @@ export class BakeModal extends Modal {
           }
 
           this.close();
+        };
+
+        // The listener itself stays synchronous: a click handler is a void slot,
+        // and returning a promise into one leaves the rejection unhandled.
+        // Every failure path inside `submitPost` reports through a Notice.
+        btn.addEventListener('click', () => {
+          void submitPost();
         });
 
         setting.addText((text) =>

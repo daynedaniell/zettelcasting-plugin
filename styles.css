@@ -833,6 +833,32 @@ span.flatpickr-weekday {
 	}
 }
 
+/* ZettelCasting: the publish dialog.
+
+   A little wider than a stock dialog, which costs nothing and buys back a few
+   lines of wrapping in the longer setting descriptions. Obsidian's own
+   max-width still caps this on a narrow window. */
+.modal.easy-bake-modal {
+	width: 620px;
+}
+
+/* Its options run taller than the 85vh Obsidian caps a modal at, and a modal
+   scrolls as a whole by default — which puts the output file name and the
+   Schedule post button below the fold, behind a scrollbar macOS only reveals
+   once you are already scrolling. Scrolling the options instead keeps the
+   title and the primary action in place at any window height.
+
+   `overflow-y` is enough on its own: a flex item's `min-height: auto` only
+   applies while overflow is visible, so making this a scroll container also
+   lets it shrink.
+
+   Qualified with `.modal` so this outranks a theme styling the content of a
+   modal by two classes. Obsidian's own rule is a single class, so this would
+   win either way against core alone. */
+.modal.easy-bake-modal .modal-content {
+	overflow-y: auto;
+}
+
 /* ZettelCasting: connected-platform status line, in the modal and settings. */
 .zettelcasting-platform-status {
 	padding: 0 var(--size-4-3) var(--size-4-2);

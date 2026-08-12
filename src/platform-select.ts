@@ -21,22 +21,39 @@ export interface PlatformSelect {
 
 const REFRESH_DEBOUNCE_MS = 400;
 
+/**
+ * Build the row and its status line from scratch. Used by the publish modal,
+ * which owns a plain container rather than a settings row.
+ */
 export function createPlatformSelect(
   container: HTMLElement,
   plugin: EasyBake,
   name = 'Publish to platform',
   desc?: string
 ): PlatformSelect {
-  const { settings } = plugin;
-
-  let dropdown!: DropdownComponent;
-
   const statusEl = container.createDiv({
     cls: 'setting-item-description zettelcasting-platform-status',
   });
 
   const setting = new Setting(container).setName(name);
   if (desc) setting.setDesc(desc);
+
+  return attachPlatformSelect(setting, statusEl, plugin);
+}
+
+/**
+ * Populate an existing settings row with the dropdown, reporting into
+ * `statusEl`. Used by the settings tab, where Obsidian's declarative settings
+ * API builds the row (and its name and description) and hands it over.
+ */
+export function attachPlatformSelect(
+  setting: Setting,
+  statusEl: HTMLElement,
+  plugin: EasyBake
+): PlatformSelect {
+  const { settings } = plugin;
+
+  let dropdown!: DropdownComponent;
 
   setting.addDropdown((component) => {
     // Populated by refresh() with the user's actually-connected platforms —
@@ -119,9 +136,13 @@ export function createPlatformSelect(
     setStatus(result.message, 'success');
   };
 
+  // The row's own window, so the timer still fires when the settings tab or
+  // the modal is showing in a popped-out window.
+  const win = setting.settingEl.win;
+
   const clearTimer = () => {
     if (timer === null) return;
-    activeWindow.clearTimeout(timer);
+    win.clearTimeout(timer);
     timer = null;
   };
 
@@ -129,7 +150,7 @@ export function createPlatformSelect(
     refresh,
     scheduleRefresh() {
       clearTimer();
-      timer = activeWindow.setTimeout(() => {
+      timer = win.setTimeout(() => {
         timer = null;
         void refresh();
       }, REFRESH_DEBOUNCE_MS);

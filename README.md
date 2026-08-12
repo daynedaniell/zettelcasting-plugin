@@ -30,7 +30,7 @@ back into your vault next to the source note.
 
 - A [ZettelCasting](https://zettelcasting.com) account with at least one social platform
   connected in your dashboard.
-- Obsidian 1.4.0 or later, on desktop. The plugin is desktop-only because converting links to
+- Obsidian 1.13.0 or later, on desktop. The plugin is desktop-only because converting links to
   non-Markdown files needs filesystem paths.
 
 ## Installation
@@ -59,8 +59,8 @@ The key is stored in this plugin's settings file in your vault and is sent only 
 
 ## Usage
 
-Open the command palette and run **Send to ZettelCasting - current file** to publish the
-active note.
+Open the command palette and run **ZettelCasting: Schedule post from current file** to publish
+the active note.
 
 That opens the **Schedule post** dialog, where you can:
 
@@ -71,7 +71,7 @@ That opens the **Schedule post** dialog, where you can:
 - Choose which connected platform to publish to.
 - Edit the filename of the local copy that gets written.
 
-Press **Schedule Post** to send it.
+Press **Schedule post** to send it.
 
 ### Branch Writing
 
@@ -81,8 +81,8 @@ Branch Writing view is focused with a card selected, two more commands become av
 
 | Command | Publishes |
 | ------- | --------- |
-| **Send to ZettelCasting - active card** | The selected card on its own |
-| **Send to ZettelCasting - active branch** | The selected card and everything beneath it |
+| **Schedule post from active Branch Writing card** | The selected card on its own |
+| **Schedule post from active Branch Writing branch** | The selected card and everything beneath it |
 
 Both stay hidden otherwise, so they never clutter the command palette. They open the same
 **Schedule post** dialog as the whole-note command.
@@ -97,7 +97,7 @@ either place updates the other.
 
 | Setting | What it does |
 | ------- | ------------ |
-| **Convert embedded markdown** | Inline the content of `![[embedded markdown files]]` that sit on their own line. |
+| **Convert embedded Markdown** | Inline the content of `![[embedded Markdown files]]` that sit on their own line. |
 | **Convert links** | Inline the content of `[[any link]]` that sits on its own line. |
 | **Convert links and embeds in lists** | Do the same when the link takes up an entire list bullet, preserving indentation. |
 | **Convert file links** | Rewrite links to non-Markdown files as `![](file:///full/path/…)` **in the local copy only**. These links never go out with the post. Off by default. |

@@ -1,6 +1,6 @@
 import esbuild from "esbuild";
 import process from "process";
-import builtins from "builtin-modules";
+import { builtinModules } from "node:module";
 import esbuildSvelte from "esbuild-svelte";
 import sveltePreprocess from "svelte-preprocess";
 
@@ -32,7 +32,10 @@ const context = await esbuild.context({
 		"@lezer/common",
 		"@lezer/highlight",
 		"@lezer/lr",
-		...builtins,
+		// Node built-ins, under both their bare and `node:`-prefixed specifiers —
+		// esbuild treats `fs` and `node:fs` as different imports.
+		...builtinModules,
+		...builtinModules.map((name) => `node:${name}`),
 	],
 	format: "cjs",
 	target: "es2018",

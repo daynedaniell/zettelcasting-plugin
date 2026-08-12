@@ -4,6 +4,7 @@ import { gfm } from 'micromark-extension-gfm';
 import {
   BlockSubpathResult,
   CachedMetadata,
+  FootnoteSubpathResult,
   HeadingSubpathResult,
 } from 'obsidian';
 
@@ -58,7 +59,7 @@ function codeRanges(source: string): Array<[number, number]> {
     tree = fromMarkdown(source, {
       extensions: [gfm()],
       mdastExtensions: [gfmFromMarkdown()],
-    }) as PositionedNode;
+    });
   } catch {
     return [];
   }
@@ -410,10 +411,17 @@ export interface SubpathExtraction {
  * Returns the *raw* slice plus its offset rather than a finished string: the
  * caller splices links and embeds at metadata-cache offsets, and `dedent` /
  * `stripBlockId` change lengths mid-string. Apply `finalizeSubpath` afterwards.
+ *
+ * Accepts everything `resolveSubpath` can return. Only the list-block case
+ * needs special handling; footnotes and headings both take the plain
+ * start/end slice below.
  */
 export function extractSubpath(
   content: string,
-  subpathResult: HeadingSubpathResult | BlockSubpathResult,
+  subpathResult:
+    | HeadingSubpathResult
+    | BlockSubpathResult
+    | FootnoteSubpathResult,
   cache: CachedMetadata
 ): SubpathExtraction {
   if (subpathResult.type === 'block' && subpathResult.list && cache.listItems) {
