@@ -106,6 +106,15 @@ export class TFolder {
 
 export const Platform = { isWin: false, isMobile: false };
 
+/**
+ * Obsidian bundles js-yaml; there is no point reimplementing it here. Every
+ * caller under test takes its parser as a parameter precisely so the tests can
+ * supply one, so reaching this is a sign an injection was forgotten.
+ */
+export function parseYaml(_input: string): unknown {
+  throw new Error('parseYaml is not stubbed — inject a parser in the test');
+}
+
 /** Split `note#heading` into its path and subpath halves, as Obsidian does. */
 export function parseLinktext(link: string): { path: string; subpath: string } {
   const hash = link.indexOf('#');
