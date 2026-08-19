@@ -884,3 +884,160 @@ span.flatpickr-weekday {
 	padding: 0 var(--size-4-3) var(--size-4-2);
 	color: var(--text-warning);
 }
+
+/* ZettelCasting: dashboard blocks.
+
+   Everything below is themed entirely through Obsidian's own CSS variables, so
+   a block picks up the user's theme — including light/dark and any accent —
+   without this file knowing a single colour value. The `data-tone` attribute
+   selects which semantic colour a piece of text carries; the four tones are the
+   only vocabulary the block code needs. */
+
+.zc-connections {
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-m);
+	padding: var(--size-4-3);
+	background: var(--background-primary);
+}
+
+.zc-connections [data-tone='success'] {
+	color: var(--text-success);
+}
+
+.zc-connections [data-tone='warning'] {
+	color: var(--text-warning);
+}
+
+.zc-connections [data-tone='error'] {
+	color: var(--text-error);
+}
+
+.zc-connections [data-tone='muted'] {
+	color: var(--text-muted);
+}
+
+/* Header: the sync line and the refresh control. */
+
+.zc-connections-header {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: var(--size-4-2);
+	margin-bottom: var(--size-4-2);
+}
+
+.zc-connections-synced {
+	color: var(--text-muted);
+	font-size: var(--font-ui-smaller);
+}
+
+/* `clickable-icon` supplies the hover and focus treatment; only the disabled
+   and spinning states are ours. */
+.zc-connections-refresh:disabled {
+	opacity: 0.5;
+	cursor: default;
+}
+
+.zc-connections-refresh.is-loading svg {
+	animation: zc-spin 1s linear infinite;
+}
+
+/* Respect a user who has asked the OS for less motion — the button is still
+   visibly disabled while it loads. */
+@media (prefers-reduced-motion: reduce) {
+	.zc-connections-refresh.is-loading svg {
+		animation: none;
+	}
+}
+
+@keyframes zc-spin {
+	to {
+		transform: rotate(360deg);
+	}
+}
+
+/* One platform per row. */
+
+.zc-connections-list {
+	display: flex;
+	flex-direction: column;
+	gap: var(--size-4-2);
+}
+
+.zc-connection {
+	display: flex;
+	align-items: center;
+	flex-wrap: wrap;
+	gap: var(--size-2-2) var(--size-4-2);
+}
+
+.zc-connection-dot {
+	width: 0.5em;
+	height: 0.5em;
+	border-radius: 50%;
+	flex: 0 0 auto;
+	/* The dot is decorative: every row states its status in words as well, so
+	   the colour is never the only carrier of the information. */
+	background: currentColor;
+}
+
+.zc-connection-name {
+	font-weight: var(--font-semibold);
+}
+
+.zc-connection-state {
+	font-size: var(--font-ui-smaller);
+}
+
+/* The detail line wraps under the name on a narrow screen — which on mobile is
+   every screen — rather than forcing the row to scroll sideways. */
+.zc-connection-detail {
+	flex: 1 0 100%;
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--size-2-1) var(--size-4-2);
+	padding-left: calc(0.5em + var(--size-4-2));
+	color: var(--text-muted);
+	font-size: var(--font-ui-smaller);
+}
+
+/* Compact mode keeps every platform on one line. */
+
+.zc-connections.is-compact .zc-connections-list {
+	gap: var(--size-2-2);
+}
+
+.zc-connection-failed {
+	font-size: var(--font-ui-smaller);
+}
+
+/* Empty, warning and error states. */
+
+.zc-connections-empty {
+	color: var(--text-muted);
+	font-size: var(--font-ui-smaller);
+}
+
+.zc-block-warning {
+	color: var(--text-warning);
+	font-size: var(--font-ui-smaller);
+	margin-bottom: var(--size-4-2);
+}
+
+.zc-block-error {
+	display: flex;
+	align-items: baseline;
+	gap: var(--size-4-2);
+	flex-wrap: wrap;
+	border: 1px solid var(--background-modifier-error);
+	border-radius: var(--radius-m);
+	padding: var(--size-4-2) var(--size-4-3);
+	color: var(--text-error);
+	font-size: var(--font-ui-smaller);
+}
+
+.zc-block-error-label {
+	font-family: var(--font-monospace);
+	color: var(--text-muted);
+	flex: 0 0 auto;
+}

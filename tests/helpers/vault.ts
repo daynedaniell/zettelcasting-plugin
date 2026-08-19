@@ -184,6 +184,7 @@ export function createSettings(
     smartFormatting: false,
     platform: '',
     zettelcasting_api_key: '',
+    dashboardCache: {},
     ...overrides,
   };
 }

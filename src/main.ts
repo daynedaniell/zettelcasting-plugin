@@ -1,10 +1,17 @@
 import { Notice, Plugin } from 'obsidian';
 
+import { IntegrationStatus, fetchIntegrationStatus } from './api';
 import { BakeModal } from './BakeModal';
 import { SelectionMode, getSelection, hasActiveCard } from './branch-writing';
 import { ZettelCastingSettingTab } from './SettingsTab';
+import { CacheContents, DashboardCache } from './dashboard/cache';
+import { CachedResource } from './dashboard/client';
+import { registerConnectionsBlock } from './dashboard/connections-block';
 
 export { BACKEND_URL } from './api';
+
+/** Cache key for the integration-status response. */
+const STATUS_CACHE_KEY = 'integration-status';
 
 export interface BakeSettings {
   bakeLinks: boolean;
@@ -14,6 +21,14 @@ export interface BakeSettings {
   smartFormatting: boolean;
   platform: string;
   zettelcasting_api_key: string;
+  /**
+   * Last-known-good API responses for the dashboard blocks.
+   *
+   * It shares `data.json` with the settings above rather than taking a file of
+   * its own: both are written through the one `saveData` call, so they cannot
+   * clobber each other, and Obsidian gives a plugin exactly one data file.
+   */
+  dashboardCache: CacheContents;
 }
 
 export const DEFAULT_SETTINGS: BakeSettings = {
@@ -28,10 +43,17 @@ export const DEFAULT_SETTINGS: BakeSettings = {
   smartFormatting: false,
   platform: '',
   zettelcasting_api_key: '',
+  dashboardCache: {},
 };
 
 export default class EasyBake extends Plugin {
   settings: BakeSettings;
+
+  /** Shared by every dashboard block, so N blocks make one request. */
+  statusResource: CachedResource<IntegrationStatus>;
+
+  /** The key the blocks last saw, to notice a change in settings. */
+  private lastApiKey = '';
 
   async loadSettings() {
     // `loadData` is typed `any`; name the shape we expect at the boundary so
@@ -39,10 +61,21 @@ export default class EasyBake extends Plugin {
     // simply carried through, as before.
     const stored = (await this.loadData()) as Partial<BakeSettings> | null;
     this.settings = Object.assign({}, DEFAULT_SETTINGS, stored ?? {});
+    // A fresh object, so a vault with no cache yet does not end up sharing —
+    // and then mutating — the one on DEFAULT_SETTINGS.
+    this.settings.dashboardCache = { ...(stored?.dashboardCache ?? {}) };
+    this.lastApiKey = this.settings.zettelcasting_api_key;
   }
 
   async saveSettings() {
     await this.saveData(this.settings);
+
+    // The key changed, so anything cached belongs to the previous account and
+    // must not be rendered under this one's credentials.
+    if (this.settings.zettelcasting_api_key !== this.lastApiKey) {
+      this.lastApiKey = this.settings.zettelcasting_api_key;
+      await this.statusResource?.reset();
+    }
   }
 
   /**
@@ -58,6 +91,7 @@ export default class EasyBake extends Plugin {
 
   async onload() {
     await this.loadSettings();
+    await this.setUpDashboard();
 
     this.addSettingTab(new ZettelCastingSettingTab(this.app, this));
 
@@ -83,6 +117,46 @@ export default class EasyBake extends Plugin {
       'schedule-post-active-branch',
       'Schedule post from active Branch Writing branch',
       'branch'
+    );
+  }
+
+  /**
+   * Build the shared cache and client, then register the dashboard blocks.
+   *
+   * Registration itself makes no request. The blocks read from cache on their
+   * first frame and only revalidate once one is actually on screen — and the
+   * fetcher returns without touching the network at all while no API key is
+   * stored, which is what keeps a fresh install silent until the user connects
+   * an account.
+   */
+  private async setUpDashboard() {
+    const cache = new DashboardCache({
+      // The cache is a slice of the same `data.json` the settings live in.
+      load: () => this.settings.dashboardCache,
+      save: async (entries) => {
+        this.settings.dashboardCache = entries;
+        await this.saveData(this.settings);
+      },
+    });
+    await cache.load();
+
+    this.statusResource = new CachedResource(
+      STATUS_CACHE_KEY,
+      cache,
+      async () => {
+        const result = await fetchIntegrationStatus(
+          this.settings.zettelcasting_api_key
+        );
+        return result.status === 'ok'
+          ? { ok: true, data: result.data }
+          : { ok: false, kind: result.status, message: result.message };
+      }
+    );
+
+    registerConnectionsBlock(
+      this,
+      this.statusResource,
+      () => !!this.settings.zettelcasting_api_key
     );
   }
 
