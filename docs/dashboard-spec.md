@@ -114,11 +114,23 @@ it adds no new auth surface.
 
 | State | Derivation |
 | --- | --- |
-| `disconnected` | No connection rows, or not in `getPlatformsForUser`'s connected set |
-| `expired` | Every connection is `needs_reconnect` |
+| `disconnected` | Not in `getPlatformsForUser`'s connected set |
+| `expired` | Every connection is `needs_reconnect`, **or** every usable connection's `tokenExpiresAt` has already passed |
 | `error` | A usable connection exists but the freshest one has `lastApiCallStatus === 'error'` — connected, but the last real call failed |
 | `expiring_soon` | Usable and `tokenExpiresAt` falls inside the `nango.expiringSoonDays` window (default 7) |
 | `connected` | Otherwise |
+
+The lapsed-token half of `expired` is worth spelling out: nothing rewrites a
+connection's `status` until something tries to publish and fails, so a row can
+read `connected` long after its token died. Without that check a dead account
+reports as healthy, which is the exact surprise this panel exists to prevent.
+One live connection is enough to keep publishing, so the state only degrades
+when *every* usable connection has lapsed.
+
+The plugin adds a sixth state of its own, `unknown`, which the server never
+sends. An unrecognised state degrades to it rather than being filed under one
+of the five, so a server that grows a new state renders honestly in an older
+plugin instead of misreporting.
 
 Ghost and Beehiiv authenticate by API key rather than OAuth, so they carry no
 `tokenExpiresAt` and resolve only to `connected` or `disconnected`.
@@ -184,9 +196,30 @@ src/api.ts                          fetchIntegrationStatus() lives here, beside
                                     per that file's own "rather than two
                                     drifting copies"
 src/dashboard/cache.ts              persistent stale-while-revalidate store
-src/dashboard/client.ts             CachedClient: coalescing, 5-min floor
+src/dashboard/client.ts             CachedResource: coalescing, 5-min floor
 src/dashboard/block-config.ts       YAML -> validated config | inline error
 src/dashboard/block-host.ts         shared scaffold later blocks reuse
 src/dashboard/relative-time.ts      "last synced 2 minutes ago"
 src/dashboard/connections-block.ts  the zc-connections renderer
 ```
+
+Unit tests: `tests/cache.test.ts`, `tests/client.test.ts`,
+`tests/block-config.test.ts`, `tests/relative-time.test.ts`, plus the
+`fetchIntegrationStatus` cases in `tests/api.test.ts`.
+
+## Adding the next block
+
+The layer is built so a second block is mostly a render function:
+
+1. Add its fetcher to `src/api.ts`, returning a result union like the two
+   already there.
+2. Create a `CachedResource` for it in `setUpDashboard`, with its own cache
+   key. It gets coalescing, the staleness floor and persistence for free.
+3. Write a config parser for its body if it takes options, following
+   `block-config.ts` — fail on bad values, warn on unknown keys.
+4. Register the processor, construct a `DashboardBlockHost` with a `render`
+   callback, and hand it to `ctx.addChild()`. Visibility gating, the
+   relative-time tick and teardown all come with the host.
+
+`renderBlockError` takes the block name as a parameter for exactly this
+reason — nothing in the shared layer is specific to `zc-connections`.
