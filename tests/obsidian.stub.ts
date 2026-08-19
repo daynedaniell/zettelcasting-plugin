@@ -75,10 +75,37 @@ export class Notice {
   constructor(public message?: string) {}
 }
 
+export class Component {
+  onload() {}
+  onunload() {}
+  registerDomEvent() {}
+  registerInterval(id: number) {
+    return id;
+  }
+  register() {}
+  addChild(child: any) {
+    return child;
+  }
+}
+
+/**
+ * Inert, like the other UI shells here. The block host's behaviour is driven by
+ * a real DOM inside Obsidian; what the tests cover is the cache, the client and
+ * the config parser it delegates to.
+ */
+export class MarkdownRenderChild extends Component {
+  constructor(public containerEl: any) {
+    super();
+  }
+}
+
+export function setIcon(_parent: any, _iconId: string) {}
+
 export class Plugin {
   constructor(public app: any, public manifest: any) {}
   addCommand() {}
   addSettingTab() {}
+  registerMarkdownCodeBlockProcessor() {}
   async loadData() {
     return {};
   }
