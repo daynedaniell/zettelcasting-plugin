@@ -4,6 +4,7 @@ import { describe, it } from 'node:test';
 import {
   apiBase,
   fetchConnectedPlatforms,
+  fetchIntegrationStatus,
   multipartBoundary,
   multipartFileBody,
 } from '../src/api';
@@ -297,6 +298,214 @@ describe('fetchConnectedPlatforms', () => {
       () => jsonResponse({ platforms: [] }),
       async () => {
         const result = await fetchConnectedPlatforms('key');
+        assert.equal(result.status, 'error');
+        assert.match(result.message, /unexpected/);
+      }
+    ));
+});
+
+/** One status row, valid unless a field is overridden with something broken. */
+const statusPlatform = (over: Record<string, unknown> = {}) => ({
+  key: 'twitter',
+  provider: 'twitter',
+  name: 'X',
+  state: 'connected',
+  tokenExpiresAt: null,
+  lastPublishedAt: '2026-08-17T14:22:10.000Z',
+  failedJobCount: 0,
+  ...over,
+});
+
+const statusBody = (platforms: unknown[], over: Record<string, unknown> = {}) => ({
+  generatedAt: '2026-08-18T09:00:00.000Z',
+  platforms,
+  ...over,
+});
+
+describe('fetchIntegrationStatus', () => {
+  it('makes no request at all without an API key', () =>
+    withRequestUrl(
+      () => {
+        throw new Error('should not have been called');
+      },
+      async (calls) => {
+        const result = await fetchIntegrationStatus('');
+        assert.equal(result.status, 'no-key');
+        // The community-store rule is no network before the user connects an
+        // account, so this asserts the absence of the call, not just the result.
+        assert.equal(calls.length, 0);
+      }
+    ));
+
+  it('calls the status endpoint with the key in the header', () =>
+    withRequestUrl(
+      () => jsonResponse(statusBody([statusPlatform()])),
+      async (calls) => {
+        await fetchIntegrationStatus('key', 'https://example.com/');
+        assert.equal(
+          calls[0].url,
+          'https://example.com/api/integrations/pkm/status'
+        );
+        assert.equal(calls[0].headers?.['X-API-Key'], 'key');
+      }
+    ));
+
+  it('returns the parsed payload', () =>
+    withRequestUrl(
+      () => jsonResponse(statusBody([statusPlatform({ failedJobCount: 3 })])),
+      async () => {
+        const result = await fetchIntegrationStatus('key');
+        assert.equal(result.status, 'ok');
+        if (result.status !== 'ok') return;
+        assert.equal(result.data.generatedAt, '2026-08-18T09:00:00.000Z');
+        assert.equal(result.data.platforms.length, 1);
+        assert.equal(result.data.platforms[0].failedJobCount, 3);
+        assert.equal(result.data.platforms[0].state, 'connected');
+      }
+    ));
+
+  it('degrades an unrecognised state to unknown rather than guessing', () =>
+    withRequestUrl(
+      () => jsonResponse(statusBody([statusPlatform({ state: 'rate_limited' })])),
+      async () => {
+        const result = await fetchIntegrationStatus('key');
+        assert.equal(result.status, 'ok');
+        if (result.status !== 'ok') return;
+        // A newer server must not have its sixth state silently misfiled as
+        // one of the five this build knows.
+        assert.equal(result.data.platforms[0].state, 'unknown');
+      }
+    ));
+
+  it('drops an unusable row without failing the whole payload', () =>
+    withRequestUrl(
+      () =>
+        jsonResponse(
+          statusBody([
+            statusPlatform({ key: '' }),
+            null,
+            'nonsense',
+            statusPlatform({ key: 'ghost', name: 'Ghost' }),
+          ])
+        ),
+      async () => {
+        const result = await fetchIntegrationStatus('key');
+        assert.equal(result.status, 'ok');
+        if (result.status !== 'ok') return;
+        assert.equal(result.data.platforms.length, 1);
+        assert.equal(result.data.platforms[0].key, 'ghost');
+      }
+    ));
+
+  it('clamps a nonsensical failure count instead of rendering it', () =>
+    withRequestUrl(
+      () =>
+        jsonResponse(
+          statusBody([
+            statusPlatform({ key: 'a', failedJobCount: -4 }),
+            statusPlatform({ key: 'b', failedJobCount: 'lots' }),
+            statusPlatform({ key: 'c', failedJobCount: 2.7 }),
+          ])
+        ),
+      async () => {
+        const result = await fetchIntegrationStatus('key');
+        assert.equal(result.status, 'ok');
+        if (result.status !== 'ok') return;
+        assert.deepEqual(
+          result.data.platforms.map((p) => p.failedJobCount),
+          [0, 0, 2]
+        );
+      }
+    ));
+
+  it('nulls a timestamp that will not parse', () =>
+    withRequestUrl(
+      () =>
+        jsonResponse(
+          statusBody([
+            statusPlatform({
+              lastPublishedAt: 'whenever',
+              tokenExpiresAt: 'soon',
+            }),
+          ])
+        ),
+      async () => {
+        const result = await fetchIntegrationStatus('key');
+        assert.equal(result.status, 'ok');
+        if (result.status !== 'ok') return;
+        assert.equal(result.data.platforms[0].lastPublishedAt, null);
+        assert.equal(result.data.platforms[0].tokenExpiresAt, null);
+      }
+    ));
+
+  it('substitutes a usable generatedAt when the server sends none', () =>
+    withRequestUrl(
+      () => jsonResponse(statusBody([statusPlatform()], { generatedAt: null })),
+      async () => {
+        const result = await fetchIntegrationStatus('key');
+        assert.equal(result.status, 'ok');
+        if (result.status !== 'ok') return;
+        // "Last synced" counts from this; leaving it null would read "never"
+        // for data that just arrived.
+        assert.ok(!Number.isNaN(Date.parse(result.data.generatedAt)));
+      }
+    ));
+
+  it('counts only platforms that are actually connected in its message', () =>
+    withRequestUrl(
+      () =>
+        jsonResponse(
+          statusBody([
+            statusPlatform({ key: 'a', state: 'connected' }),
+            statusPlatform({ key: 'b', state: 'expiring_soon' }),
+            statusPlatform({ key: 'c', state: 'disconnected' }),
+          ])
+        ),
+      async () => {
+        const result = await fetchIntegrationStatus('key');
+        assert.equal(result.status, 'ok');
+        if (result.status !== 'ok') return;
+        assert.match(result.message, /2 platforms connected/);
+      }
+    ));
+
+  it('reports an invalid key the same way the platform lookup does', () =>
+    withRequestUrl(
+      () => jsonResponse({}, 401),
+      async () => {
+        const result = await fetchIntegrationStatus('key');
+        assert.equal(result.status, 'unauthorized');
+        assert.match(result.message, /Invalid API key/);
+      }
+    ));
+
+  it('reports a server error', () =>
+    withRequestUrl(
+      () => jsonResponse({}, 500),
+      async () => {
+        const result = await fetchIntegrationStatus('key');
+        assert.equal(result.status, 'error');
+        assert.match(result.message, /500/);
+      }
+    ));
+
+  it('reports a network failure', () =>
+    withRequestUrl(
+      () => {
+        throw new Error('offline');
+      },
+      async () => {
+        const result = await fetchIntegrationStatus('key');
+        assert.equal(result.status, 'error');
+        assert.match(result.message, /Could not reach/);
+      }
+    ));
+
+  it('rejects a payload with no platforms array', () =>
+    withRequestUrl(
+      () => jsonResponse({ generatedAt: '2026-08-18T09:00:00.000Z' }),
+      async () => {
+        const result = await fetchIntegrationStatus('key');
         assert.equal(result.status, 'error');
         assert.match(result.message, /unexpected/);
       }
