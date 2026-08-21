@@ -16,9 +16,11 @@ import {
   apiBase,
   multipartBoundary,
   multipartFileBody,
+  publishPost,
 } from './api';
 import EasyBake, { BakeSettings } from './main';
 import { PlatformSelect, createPlatformSelect } from './platform-select';
+import { stampPostId } from './post-id-stamp';
 import {
   applyIndent,
   extractSubpath,
@@ -238,40 +240,6 @@ async function uploadMedia(
   }
 
   return url;
-}
-
-async function send_note(
-  text: string,
-  publishDate: Date,
-  platform: string,
-  zettelcasting_api_key: string,
-  backendUrl: string,
-  media: string[]
-) {
-  // `requestUrl` rather than `fetch`: it goes out through Obsidian rather than
-  // the renderer, so the request is not subject to CORS. `throw: false` keeps
-  // the status check below as the single place a failure is turned into a
-  // message.
-  const response = await requestUrl({
-    url: `${apiBase(backendUrl)}/api/integrations/pkm/posts`,
-    method: 'POST',
-    contentType: 'application/json',
-    headers: {
-      'X-API-Key': `${zettelcasting_api_key}`,
-    },
-    body: JSON.stringify({
-      body: text,
-      platform: platform,
-      scheduledFor: publishDate,
-      media: media,
-      tags: ['scheduled'],
-    }),
-    throw: false,
-  });
-
-  if (response.status < 200 || response.status >= 300) {
-    throw new Error(`Failed to schedule post (${response.status})`);
-  }
 }
 
 function disableBtn(btn: HTMLButtonElement) {
@@ -592,20 +560,25 @@ export class BakeModal extends Modal {
               return;
             }
 
-            try {
-              await send_note(
-                publishText,
-                publishDate,
-                settings.platform,
-                settings.zettelcasting_api_key,
-                BACKEND_URL,
-                mediaUrls
-              );
-            } catch (err) {
-              new Notice(
-                err instanceof Error ? err.message : 'Failed to schedule post',
-                8000
-              );
+            // Only claim a vault id when there is something to attach it to.
+            // Asking for one generates and persists it on first use, so a user
+            // who has stamping switched off never has an identifier written.
+            const stamping = settings.stampPostId;
+            const result = await publishPost(
+              {
+                body: publishText,
+                platform: settings.platform,
+                scheduledFor: publishDate,
+                media: mediaUrls,
+                sourcePath: stamping ? file.path : undefined,
+                sourceVaultId: stamping ? await plugin.vaultId() : undefined,
+              },
+              settings.zettelcasting_api_key,
+              BACKEND_URL
+            );
+
+            if (result.status !== 'ok') {
+              new Notice(result.message, 8000);
               enableBtn(btn);
               return;
             }
@@ -616,6 +589,29 @@ export class BakeModal extends Modal {
                 ? `Scheduled post with ${count} media file${count === 1 ? '' : 's'}.`
                 : 'Scheduled post.'
             );
+
+            // The post is live from here on. Everything below is bookkeeping,
+            // and a failure in it is reported without being called a publish
+            // failure — `file` is the note the user is writing in, and for a
+            // Branch Writing card it is the note containing the card, since
+            // that is the only file that exists.
+            if (stamping && result.postId) {
+              const stamped = await stampPostId(
+                this.app.fileManager,
+                file,
+                result.postId
+              );
+              if (stamped.status === 'failed') {
+                console.error(
+                  `ZettelCasting: could not write zc_post_id to ${file.path}`,
+                  stamped.message
+                );
+                new Notice(
+                  `Post scheduled, but the note's frontmatter could not be updated: ${stamped.message}`,
+                  8000
+                );
+              }
+            }
 
             // `outputName` already carries the .md extension unless the user
             // edited it away — Vault.create rejects extensionless paths.

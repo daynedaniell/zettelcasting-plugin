@@ -139,6 +139,18 @@ The two aggregates are one grouped query each over the `schedule` table:
 `MAX(publishedDate) WHERE status = 'published'` and
 `COUNT(*) WHERE status = 'failed'`, both grouped by platform.
 
+### `GET /api/integrations/pkm/posts`
+
+Also built for this work. `GET /posts` already lists posts but sits behind
+`JwtAuthGuard` — a browser session, which a plugin cannot hold. This is the same
+listing on the existing API-key surface, so it adds no new auth surface, and its
+items carry `sourcePath` and `sourceVaultId`.
+
+Query parameters: `platform`, `published`, `page`, `limit` (default 25, capped
+at 100). The controller coerces them itself — the global `ValidationPipe` does
+not touch bare `@Query` primitives, so `published=false` would otherwise arrive
+as the truthy string `"false"`.
+
 ---
 
 ## Caching and refresh
@@ -169,6 +181,74 @@ block, so N blocks on a note produce one request, not N.
 
 ---
 
+## Note ↔ post identity
+
+The queue block has to say which note a post came from. Neither end can answer
+that alone, so the mapping is written from both:
+
+- **Note → post.** On a successful publish the plugin writes the server's post
+  id into the source note's frontmatter as `zc_post_id`, through
+  `app.fileManager.processFrontMatter()` — never a string edit. Only the
+  frontmatter block is rewritten; the body is passed through untouched, which
+  matters because the vault is under Obsidian Sync and Obsidian Git.
+- **Post → note.** The publish payload carries `sourcePath` (vault-relative) and
+  `sourceVaultId`, which the server stores on the post and returns on
+  `GET /api/integrations/pkm/posts`.
+
+### Resolution order
+
+1. **`zc_post_id` first.** An exact id, written by the publish that created the
+   post. Nothing about it breaks when a note is renamed or moved.
+2. **`(sourceVaultId, sourcePath)` as a fallback.** For posts whose note lost
+   its stamp, or never had one: a publish that predates this feature, a note
+   with frontmatter the plugin could not write, a user who has stamping turned
+   off, and cross-posts — publishing to a second platform clones the post row
+   and only the original's id is in the note.
+
+A path match is a weaker claim than an id match, so it is the fallback and not
+the primary: moving or renaming a note silently invalidates it, and nothing
+rewrites `sourcePath` when that happens.
+
+### Rules that keep this safe
+
+**The vault id is generated, never derived.** A random UUID, made once on first
+publish and stored in `data.json`. Deriving it from the vault's name or
+filesystem path would re-key every note the first time a user renames or moves
+the vault.
+
+**Nullable and optional throughout.** Both columns are nullable, both payload
+fields optional. Posts made before this feature, and every publish that did not
+come from a vault — the web app, the MCP tools, direct API calls — keep working
+untouched and store null. There is **no backfill migration**: only the plugin
+knows its own vault id, so populating old rows is a user-triggered plugin
+command, not something that happens to a database on deploy.
+
+**The frontmatter write cannot fail a publish.** By the time it runs the post is
+already live. A failure — malformed YAML in the note, most likely, which
+`processFrontMatter` throws on rather than overwriting — is logged and raised as
+a non-blocking notice. Nothing is rolled back and nothing is retried.
+
+**Stamping is switchable, on by default.** It is the only part of publishing
+that writes to the user's own notes. Turning it off also stops the plugin
+sending `sourcePath`/`sourceVaultId`, so a user who opts out is not mapped by
+the other end either.
+
+**The mapping never leaves the user's account.** `sourcePath` describes someone's
+private folder structure, so it is deliberately absent from
+`PostPublishedEvent` — the webhook dispatcher fans that object out to
+user-configured external endpoints.
+
+### One known sharp edge
+
+`zc_post_id` is a single value, and Branch Writing publishes a card or a branch
+rather than the whole note — so one note can produce several posts while holding
+one id. The last publish wins. `sourcePath` for a card-level publish also points
+at the containing note, since that is the only file that exists. Resolution
+therefore reads: the stamped id names the *most recent* post from that note, and
+the path fallback finds the rest.
+
+---
+
 ## Constraints
 
 - Clean up every listener, observer and timer in `onunload` and on block
@@ -191,10 +271,11 @@ block, so N blocks on a note produce one request, not N.
 ## File layout
 
 ```
-src/api.ts                          fetchIntegrationStatus() lives here, beside
-                                    fetchConnectedPlatforms — one HTTP layer,
-                                    per that file's own "rather than two
-                                    drifting copies"
+src/api.ts                          fetchIntegrationStatus() and publishPost()
+                                    live here, beside fetchConnectedPlatforms —
+                                    one HTTP layer, per that file's own "rather
+                                    than two drifting copies"
+src/post-id-stamp.ts                writes zc_post_id via processFrontMatter
 src/dashboard/cache.ts              persistent stale-while-revalidate store
 src/dashboard/client.ts             CachedResource: coalescing, 5-min floor
 src/dashboard/block-config.ts       YAML -> validated config | inline error
@@ -204,8 +285,9 @@ src/dashboard/connections-block.ts  the zc-connections renderer
 ```
 
 Unit tests: `tests/cache.test.ts`, `tests/client.test.ts`,
-`tests/block-config.test.ts`, `tests/relative-time.test.ts`, plus the
-`fetchIntegrationStatus` cases in `tests/api.test.ts`.
+`tests/block-config.test.ts`, `tests/relative-time.test.ts`,
+`tests/post-id-stamp.test.ts`, plus the `fetchIntegrationStatus`,
+`buildPublishPayload` and `publishPost` cases in `tests/api.test.ts`.
 
 ## Adding the next block
 

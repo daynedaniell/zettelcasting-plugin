@@ -3,10 +3,12 @@ import { describe, it } from 'node:test';
 
 import {
   apiBase,
+  buildPublishPayload,
   fetchConnectedPlatforms,
   fetchIntegrationStatus,
   multipartBoundary,
   multipartFileBody,
+  publishPost,
 } from '../src/api';
 import { StubRequestUrlParam, requestUrlStub } from './obsidian.stub';
 
@@ -510,4 +512,174 @@ describe('fetchIntegrationStatus', () => {
         assert.match(result.message, /unexpected/);
       }
     ));
+});
+
+
+describe('buildPublishPayload', () => {
+  const base = {
+    body: 'A thought worth posting',
+    platform: 'twitter',
+    scheduledFor: new Date('2026-08-21T10:00:00Z'),
+    media: [],
+  };
+
+  it('carries the source mapping when both values are present', () => {
+    const payload = buildPublishPayload({
+      ...base,
+      sourcePath: '3 - Resources/10-01-06 - Appeal to Consequences.md',
+      sourceVaultId: 'vault-uuid',
+    });
+
+    assert.equal(
+      payload.sourcePath,
+      '3 - Resources/10-01-06 - Appeal to Consequences.md'
+    );
+    assert.equal(payload.sourceVaultId, 'vault-uuid');
+  });
+
+  it('omits the keys entirely rather than sending undefined', () => {
+    // The server rejects unknown *and* malformed properties, so a key present
+    // with no value is not the same as an absent key.
+    const payload = buildPublishPayload(base);
+
+    assert.equal('sourcePath' in payload, false);
+    assert.equal('sourceVaultId' in payload, false);
+  });
+
+  it('omits a half-filled mapping', () => {
+    // A vault id with no path, or the reverse, maps nothing. Sending one alone
+    // would write a column that can never be resolved.
+    const payload = buildPublishPayload({ ...base, sourcePath: 'note.md' });
+
+    assert.equal('sourcePath' in payload, true);
+    assert.equal('sourceVaultId' in payload, false);
+  });
+
+  it('preserves the fields the endpoint has always received', () => {
+    const payload = buildPublishPayload(base);
+
+    assert.equal(payload.body, 'A thought worth posting');
+    assert.equal(payload.platform, 'twitter');
+    assert.equal(payload.scheduledFor, base.scheduledFor);
+    assert.deepEqual(payload.media, []);
+    assert.deepEqual(payload.tags, ['scheduled']);
+  });
+});
+
+describe('publishPost', () => {
+  const input = {
+    body: 'A thought worth posting',
+    platform: 'twitter',
+    scheduledFor: new Date('2026-08-21T10:00:00Z'),
+    media: [],
+    sourcePath: 'notes/idea.md',
+    sourceVaultId: 'vault-uuid',
+  };
+
+  it('returns the post id from the response', async () => {
+    await withRequestUrl(
+      () => jsonResponse({ id: 'post-1', body: 'A thought worth posting' }),
+      async (calls) => {
+        const result = await publishPost(input, 'key', 'https://example.com');
+
+        assert.deepEqual(result, { status: 'ok', postId: 'post-1' });
+        assert.equal(calls.length, 1);
+        assert.equal(
+          calls[0].url,
+          'https://example.com/api/integrations/pkm/posts'
+        );
+      }
+    );
+  });
+
+  it('succeeds with a null id when the response carries none', async () => {
+    // Nothing to stamp is not a publish failure — the post is already live.
+    await withRequestUrl(
+      () => jsonResponse({ ok: true }),
+      async () => {
+        const result = await publishPost(input, 'key', 'https://example.com');
+
+        assert.deepEqual(result, { status: 'ok', postId: null });
+      }
+    );
+  });
+
+  it('retries once without the source fields when the server rejects them', async () => {
+    // A plugin updated ahead of the server would otherwise fail every publish,
+    // because the API rejects properties it does not recognise.
+    await withRequestUrl(
+      (param) => {
+        const sent = JSON.parse(param.body as string) as Record<string, unknown>;
+        return 'sourcePath' in sent
+          ? jsonResponse(
+              {
+                message: 'Validation failed',
+                errors: [{ property: 'sourcePath' }],
+              },
+              400
+            )
+          : jsonResponse({ id: 'post-1' });
+      },
+      async (calls) => {
+        const result = await publishPost(input, 'key', 'https://example.com');
+
+        assert.deepEqual(result, { status: 'ok', postId: 'post-1' });
+        assert.equal(calls.length, 2);
+
+        const retried = JSON.parse(calls[1].body as string) as Record<
+          string,
+          unknown
+        >;
+        assert.equal('sourcePath' in retried, false);
+        assert.equal('sourceVaultId' in retried, false);
+        // The post itself must be unchanged by the retry.
+        assert.equal(retried.body, 'A thought worth posting');
+        assert.deepEqual(retried.tags, ['scheduled']);
+      }
+    );
+  });
+
+  it('does not retry a 400 that is about something else', async () => {
+    await withRequestUrl(
+      () => jsonResponse({ message: 'Post body is empty' }, 400),
+      async (calls) => {
+        const result = await publishPost(input, 'key', 'https://example.com');
+
+        assert.equal(result.status, 'error');
+        assert.equal(calls.length, 1);
+      }
+    );
+  });
+
+  it('reports a server error rather than throwing', async () => {
+    await withRequestUrl(
+      () => jsonResponse({}, 500),
+      async () => {
+        const result = await publishPost(input, 'key', 'https://example.com');
+
+        assert.equal(result.status, 'error');
+        assert.match(
+          result.status === 'error' ? result.message : '',
+          /\(500\)/
+        );
+      }
+    );
+  });
+
+  it('reports an unreachable server rather than throwing', async () => {
+    await withRequestUrl(
+      () => {
+        throw new Error('offline');
+      },
+      async () => {
+        const result = await publishPost(input, 'key', 'https://example.com');
+
+        assert.equal(result.status, 'error');
+        assert.match(
+          result.status === 'error' ? result.message : '',
+          /Could not reach/
+        );
+      }
+    );
+  });
 });

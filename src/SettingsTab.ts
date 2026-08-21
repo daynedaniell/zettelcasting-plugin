@@ -100,6 +100,23 @@ export class ZettelCastingSettingTab extends PluginSettingTab {
       },
       {
         type: 'group',
+        heading: 'Publishing',
+        items: [
+          {
+            name: 'Link notes to their posts',
+            desc:
+              'After a post is scheduled, write its ID into the source note\'s ' +
+              'frontmatter as "zc_post_id", so the note and the post can be ' +
+              'matched up later. Only the frontmatter block is rewritten — the ' +
+              'body of the note is left exactly as it was. Turn this off to ' +
+              'publish without ZettelCasting ever writing to your notes.',
+            aliases: ['frontmatter', 'zc_post_id', 'stamp', 'post id'],
+            control: { type: 'toggle', key: 'stampPostId' },
+          },
+        ],
+      },
+      {
+        type: 'group',
         heading: 'Baking defaults',
         items: BAKING_TOGGLES.map(({ key, name, desc }) => ({
           name,

@@ -22,6 +22,24 @@ export interface BakeSettings {
   platform: string;
   zettelcasting_api_key: string;
   /**
+   * Stable identifier for this vault, generated once on first publish and never
+   * again.
+   *
+   * Deliberately not derived from the vault's name or filesystem path: both
+   * change when the user renames or moves the vault, which would silently orphan
+   * every post already mapped to it. Empty until the first publish generates it.
+   */
+  sourceVaultId: string;
+  /**
+   * Write the published post's id back into the source note's frontmatter as
+   * `zc_post_id`.
+   *
+   * On by default — it is what lets a note be matched to its post without a
+   * path lookup — but it is the only part of publishing that writes to the
+   * user's notes, so it stays switchable.
+   */
+  stampPostId: boolean;
+  /**
    * Last-known-good API responses for the dashboard blocks.
    *
    * It shares `data.json` with the settings above rather than taking a file of
@@ -43,6 +61,9 @@ export const DEFAULT_SETTINGS: BakeSettings = {
   smartFormatting: false,
   platform: '',
   zettelcasting_api_key: '',
+  // Empty until the first publish; `vaultId()` fills it in.
+  sourceVaultId: '',
+  stampPostId: true,
   dashboardCache: {},
 };
 
@@ -65,6 +86,22 @@ export default class EasyBake extends Plugin {
     // and then mutating — the one on DEFAULT_SETTINGS.
     this.settings.dashboardCache = { ...(stored?.dashboardCache ?? {}) };
     this.lastApiKey = this.settings.zettelcasting_api_key;
+  }
+
+  /**
+   * This vault's id, generating and persisting one the first time it is asked
+   * for.
+   *
+   * Lazy rather than generated at install time so a user who never publishes
+   * never has an identifier written for them, and so existing installs pick one
+   * up on their next publish rather than needing a migration.
+   */
+  async vaultId(): Promise<string> {
+    if (!this.settings.sourceVaultId) {
+      this.settings.sourceVaultId = crypto.randomUUID();
+      await this.saveSettings();
+    }
+    return this.settings.sourceVaultId;
   }
 
   async saveSettings() {

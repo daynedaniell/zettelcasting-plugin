@@ -346,3 +346,135 @@ export async function fetchIntegrationStatus(
         : `${count} platform${count === 1 ? '' : 's'} connected.`,
   };
 }
+
+/** Everything one publish needs, before it becomes a request body. */
+export interface PublishPostInput {
+  /** The baked, publish-ready text. */
+  body: string;
+  platform: string;
+  scheduledFor: Date;
+  media: string[];
+  /**
+   * Vault-relative path of the note this came from, and this vault's stable id.
+   * Both omitted when frontmatter stamping is off or no vault id exists yet —
+   * the post still publishes, it just carries no source mapping.
+   */
+  sourcePath?: string;
+  sourceVaultId?: string;
+}
+
+/**
+ * The request body, separated from the request so it can be asserted directly.
+ *
+ * `tags: ['scheduled']` is what this endpoint has always sent and is preserved
+ * verbatim. The two source fields are omitted entirely rather than sent as
+ * `undefined` — the server rejects unknown *and* malformed properties, so a
+ * key with no value is not the same as no key.
+ */
+export function buildPublishPayload(
+  input: PublishPostInput
+): Record<string, unknown> {
+  return {
+    body: input.body,
+    platform: input.platform,
+    scheduledFor: input.scheduledFor,
+    media: input.media,
+    tags: ['scheduled'],
+    ...(input.sourcePath ? { sourcePath: input.sourcePath } : {}),
+    ...(input.sourceVaultId ? { sourceVaultId: input.sourceVaultId } : {}),
+  };
+}
+
+/**
+ * Outcome of a publish. `postId` is the server's id for the new post, or null
+ * when the response carried no usable one — which is not a failure: the post is
+ * published either way, there is simply nothing to stamp into the note.
+ */
+export type PublishResult =
+  | { status: 'ok'; postId: string | null }
+  | { status: 'error'; message: string };
+
+/**
+ * Whether a 400 is the server telling us it does not know these fields.
+ *
+ * The API runs a whitelist validator that rejects unrecognised properties, so a
+ * plugin that has been updated ahead of the server would fail *every* publish
+ * rather than merely losing the source mapping. Detecting that case lets the
+ * publish be retried without them, which decouples the two release cadences.
+ */
+function rejectsSourceFields(status: number, text: string): boolean {
+  if (status !== 400) return false;
+  return text.includes('sourcePath') || text.includes('sourceVaultId');
+}
+
+/** Read the post id out of a publish response, or null if it has none. */
+function postIdFrom(resp: RequestUrlResponse): string | null {
+  try {
+    const payload = resp.json as { id?: unknown } | null;
+    return payload && typeof payload.id === 'string' && payload.id
+      ? payload.id
+      : null;
+  } catch {
+    // A published post with an unreadable response body is still published.
+    return null;
+  }
+}
+
+/**
+ * Publish (or schedule) one post.
+ *
+ * Never throws, like the fetchers above: the modal renders the outcome, and a
+ * thrown error there would leave the button disabled with nothing said.
+ */
+export async function publishPost(
+  input: PublishPostInput,
+  apiKey: string,
+  backendUrl: string = BACKEND_URL
+): Promise<PublishResult> {
+  const url = `${apiBase(backendUrl)}/api/integrations/pkm/posts`;
+
+  const send = async (payload: Record<string, unknown>) =>
+    // `requestUrl` rather than `fetch`: it goes out through Obsidian rather
+    // than the renderer, so the request is not subject to CORS. `throw: false`
+    // keeps the status check below as the single place a failure becomes a
+    // message.
+    requestUrl({
+      url,
+      method: 'POST',
+      contentType: 'application/json',
+      headers: { 'X-API-Key': apiKey },
+      body: JSON.stringify(payload),
+      throw: false,
+    });
+
+  let resp: RequestUrlResponse;
+  try {
+    resp = await send(buildPublishPayload(input));
+
+    if (rejectsSourceFields(resp.status, resp.text ?? '')) {
+      // Older server. Publishing matters more than the mapping, so drop the
+      // two fields and go again — once, never in a loop.
+      resp = await send(
+        buildPublishPayload({
+          ...input,
+          sourcePath: undefined,
+          sourceVaultId: undefined,
+        })
+      );
+    }
+  } catch {
+    return {
+      status: 'error',
+      message: 'Could not reach the ZettelCasting server. Please try again later.',
+    };
+  }
+
+  if (resp.status < 200 || resp.status >= 300) {
+    return {
+      status: 'error',
+      message: `Failed to schedule post (${resp.status})`,
+    };
+  }
+
+  return { status: 'ok', postId: postIdFrom(resp) };
+}
