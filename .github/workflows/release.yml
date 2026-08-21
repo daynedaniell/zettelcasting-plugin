@@ -13,8 +13,14 @@ jobs:
     # `gh release create` fail with "HTTP 403: Resource not accessible by
     # integration". Grant the one scope this job needs rather than relying on a
     # repository setting that is invisible from here.
+    #
+    # The attestation step needs two more: `id-token` to mint the OIDC token
+    # that proves the build ran in this workflow, and `attestations` to store
+    # the signed result against the repository.
     permissions:
       contents: write
+      id-token: write
+      attestations: write
 
     steps:
       - uses: actions/checkout@v3
@@ -26,8 +32,26 @@ jobs:
 
       - name: Build plugin
         run: |
-          npm install
+          npm ci
           npm run build
+
+      # Signs a statement that these exact bytes came out of this workflow, at
+      # this commit. Obsidian's release check looks for one per asset, and
+      # users can verify by hand with:
+      #
+      #   gh attestation verify main.js -R daynedaniell/zettelcasting-plugin
+      #
+      # This runs before the release so the attestation is already published
+      # when the assets first become downloadable. What gets attested is the
+      # digest of each file on disk, which is the same bytes `gh release
+      # create` uploads below — so the two must not be reordered.
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@v4
+        with:
+          subject-path: |
+            main.js
+            manifest.json
+            styles.css
 
       - name: Create release
         env:
